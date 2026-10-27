@@ -37,6 +37,8 @@ static const char *TAG = "passport";
 #define TASK_PERIOD_MS 50
 #define UI_TICK_MS 1000
 #define BATTERY_PERIOD_MS 30000
+// 背光是整机最大的一笔固定功耗，65% 亮度观感几乎无损。
+#define SCREEN_BRIGHTNESS 65
 
 typedef struct {
     bsp_btn_t btn;
@@ -251,7 +253,8 @@ static void wake_screen(void)
 {
     s_screen_on = true;
     s_last_input_ms = now_ms();
-    bsp_display_backlight(100);
+    bsp_display_backlight(SCREEN_BRIGHTNESS);
+    app_wifi_set_low_power(false);
     s_last_start_ms = 0;
     render_view(false);
     ESP_LOGI(TAG, "屏幕唤醒");
@@ -404,6 +407,7 @@ static void maybe_screen_off(int64_t now)
     s_screen_on = false;
     bsp_display_backlight(0);
     app_net_cancel();
+    app_wifi_set_low_power(true);
     ESP_LOGI(TAG, "自动熄屏，停止轮询");
 }
 
@@ -482,7 +486,7 @@ void app_main(void)
         ESP_LOGE(TAG, "显示或 LVGL 初始化失败，应用无法继续");
         return;
     }
-    bsp_display_backlight(100);
+    bsp_display_backlight(SCREEN_BRIGHTNESS);
 
     if (app_config_init() != ESP_OK) {
         ESP_LOGW(TAG, "配置初始化异常，使用内存默认值");

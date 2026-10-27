@@ -33,3 +33,5 @@ const char *app_wifi_ap_ssid(void);
 const char *app_wifi_ap_password(void);
 bool app_wifi_ready(void);
 void app_wifi_note_config_changed(void);
+// 熄屏后放宽 Wi-Fi 省电档以降低待机电流，亮屏时恢复，避免刷新请求被省电拖慢。
+void app_wifi_set_low_power(bool on);

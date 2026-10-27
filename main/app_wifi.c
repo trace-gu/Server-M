@@ -351,6 +351,17 @@ void app_wifi_stop_ap(void)
     }
 }
 
+void app_wifi_set_low_power(bool on)
+{
+    if (!s_wifi_started) return;
+    // 配网热点开着时保持 MIN_MODEM：手机的配网请求要被及时响应。
+    if (on && s_ap_active) return;
+    esp_err_t err = esp_wifi_set_ps(on ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "切换 Wi-Fi 省电模式失败: %s", esp_err_to_name(err));
+    }
+}
+
 bool app_wifi_ap_active(void)
 {
     bool active;
