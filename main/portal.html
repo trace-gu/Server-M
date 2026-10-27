@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Passport 配网</title>
+<style>
+:root{--bg:#0b1220;--card:#141e2e;--line:#263449;--ink:#e5e7eb;--muted:#94a3b8;--accent:#22d3ee;--ok:#34d399;--warn:#fbbf24;--bad:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+h1{font-size:20px;margin:0;letter-spacing:.5px}
+.badge{font-size:12px;color:var(--accent);border:1px solid var(--line);border-radius:999px;padding:3px 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 12px;color:var(--accent)}
+label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+input,select{width:100%;background:#0e1726;border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:10px 12px;font-size:14px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:120px}
+button{background:var(--accent);color:#06202a;border:0;border-radius:9px;padding:10px 14px;font-weight:600;font-size:14px;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button.danger{background:transparent;color:var(--bad);border:1px solid #4a2630}
+button.small{padding:6px 10px;font-size:12px}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+li .grow{flex:1;min-width:0}
+.name{font-weight:600;word-break:break-all}
+.sub{font-size:12px;color:var(--muted);word-break:break-all}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+.msg{font-size:13px;margin-top:10px;min-height:20px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.footer{text-align:center;color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>AI Passport 服务器监控</h1>
+  <span class="badge" id="ap">配网模式</span>
+</header>
+
+<div class="card">
+  <h2>设备热点</h2>
+  <div class="sub">手机连接热点后打开本页。热点：<strong id="apssid">--</strong>，密码：<strong id="appass">--</strong></div>
+  <div class="hint" id="stainfo">正在读取状态...</div>
+</div>
+
+<div class="card">
+  <h2>Wi-Fi 网络（可保存多个）</h2>
+  <ul id="wifilist"></ul>
+  <div class="row" style="margin-top:10px">
+    <input id="wssid" placeholder="Wi-Fi 名称 (SSID)" autocomplete="off">
+    <input id="wpass" type="password" placeholder="密码（开放网络留空）" autocomplete="off">
+    <button onclick="addWifi()">保存网络</button>
+  </div>
+  <div class="hint">设备会优先连接“当前使用”的网络；连接失败会自动尝试其它已保存网络。最多 6 个。</div>
+  <div class="msg" id="wmsg"></div>
+</div>
+
+<div class="card">
+  <h2>服务器（每台一个 HTTPS 地址与 Token）</h2>
+  <ul id="srvlist"></ul>
+  <div style="margin-top:10px">
+    <div class="row">
+      <input id="sname" placeholder="显示名称，如 生产 Web-01" autocomplete="off">
+      <input id="surl" placeholder="https://monitor.example.com/status" autocomplete="off">
+    </div>
+    <label>访问 Token（编辑时留空表示不修改）</label>
+    <input id="stoken" type="password" placeholder="服务器 agent 配置的 token" autocomplete="off">
+    <div class="row" style="margin-top:10px">
+      <button id="sbtn" onclick="saveServer()">添加服务器</button>
+      <button class="ghost" onclick="cancelEdit()">取消编辑</button>
+    </div>
+  </div>
+  <div class="hint">地址必须是 https://，证书需被公共 CA 信任（推荐 Caddy 自动 HTTPS）。最多 20 台。</div>
+  <div class="msg" id="smsg"></div>
+</div>
+
+<div class="card">
+  <h2>显示设置</h2>
+  <div class="row">
+    <div>
+      <label>刷新间隔</label>
+      <select id="refresh">
+        <option value="5">5 秒</option><option value="10">10 秒</option>
+        <option value="15">15 秒</option><option value="30">30 秒</option>
+        <option value="60">60 秒</option>
+      </select>
+    </div>
+    <div>
+      <label>自动熄屏</label>
+      <select id="screenoff">
+        <option value="0">常亮</option><option value="30">30 秒</option>
+        <option value="60">60 秒</option><option value="180">3 分钟</option>
+        <option value="300">5 分钟</option>
+      </select>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button onclick="saveSettings()">保存设置</button>
+    <button class="ghost" onclick="exitPortal()">退出配网并返回监控</button>
+  </div>
+  <div class="hint">仅当屏幕显示某台服务器详情且屏幕点亮时才会拉取数据；熄屏后停止请求。</div>
+  <div class="msg" id="gmsg"></div>
+</div>
+
+<div class="footer">AI Passport · 数据仅保存在设备本地</div>
+</div>
+
+<script>
+let cfg=null, editIndex=-1;
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function msg(id,text,ok){const el=document.getElementById(id);el.className='msg '+(ok?'ok':'bad');el.textContent=text;}
+async function api(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  let j={};try{j=await r.json();}catch(e){}
+  if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function load(){
+  const r=await fetch('/api/config',{cache:'no-store'});
+  cfg=await r.json();
+  document.getElementById('apssid').textContent=cfg.ap_ssid||'--';
+  document.getElementById('appass').textContent=cfg.ap_pass||'--';
+  document.getElementById('stainfo').textContent=cfg.wifi_state==='connected'
+    ? ('已连接 '+cfg.wifi_ssid+' · IP '+(cfg.ip||'--'))
+    : (cfg.wifi_state==='off'?'尚未配置 Wi-Fi':'正在连接 '+cfg.wifi_ssid+' ...');
+  renderWifi();renderServers();
+  document.getElementById('refresh').value=String(cfg.settings.refresh_s);
+  document.getElementById('screenoff').value=String(cfg.settings.screen_off_s);
+}
+function renderWifi(){
+  const ul=document.getElementById('wifilist');ul.innerHTML='';
+  if(!cfg.wifi.length){ul.innerHTML='<li><span class="sub">还没有保存的 Wi-Fi</span></li>';return;}
+  cfg.wifi.forEach((w,i)=>{
+    const li=document.createElement('li');
+    li.innerHTML='<span class="dot '+(w.active?'on':'')+'"></span><div class="grow"><div class="name">'+esc(w.ssid)+'</div><div class="sub">'+(w.active?'当前使用':'')+'</div></div>';
+    const use=document.createElement('button');use.className='ghost small';use.textContent='使用';use.onclick=()=>activateWifi(i);li.appendChild(use);
+    const del=document.createElement('button');del.className='danger small';del.textContent='删除';del.onclick=()=>deleteWifi(i);li.appendChild(del);
+    ul.appendChild(li);
+  });
+}
+function renderServers(){
+  const ul=document.getElementById('srvlist');ul.innerHTML='';
+  if(!cfg.servers.length){ul.innerHTML='<li><span class="sub">还没有添加服务器</span></li>';return;}
+  cfg.servers.forEach((s,i)=>{
+    const li=document.createElement('li');
+    li.innerHTML='<span class="dot"></span><div class="grow"><div class="name">'+esc(s.name)+'</div><div class="sub">'+esc(s.url)+'</div></div>';
+    const test=document.createElement('button');test.className='ghost small';test.textContent='测试';test.onclick=()=>testServer(i);li.appendChild(test);
+    const edit=document.createElement('button');edit.className='ghost small';edit.textContent='编辑';edit.onclick=()=>editServer(i);li.appendChild(edit);
+    const del=document.createElement('button');del.className='danger small';del.textContent='删除';del.onclick=()=>deleteServer(i);li.appendChild(del);
+    ul.appendChild(li);
+  });
+}
+async function addWifi(){
+  const ssid=document.getElementById('wssid').value.trim();
+  const pass=document.getElementById('wpass').value;
+  if(!ssid){msg('wmsg','请输入 Wi-Fi 名称',false);return;}
+  try{await api('/api/wifi',{action:'add',ssid,password:pass});document.getElementById('wssid').value='';document.getElementById('wpass').value='';msg('wmsg','已保存，设备会尝试连接',true);await load();}catch(e){msg('wmsg',e.message,false);}
+}
+async function activateWifi(i){try{await api('/api/wifi',{action:'activate',index:i});msg('wmsg','已切换网络',true);await load();}catch(e){msg('wmsg',e.message,false);}}
+async function deleteWifi(i){if(!confirm('删除这个 Wi-Fi 吗？'))return;try{await api('/api/wifi',{action:'delete',index:i});msg('wmsg','已删除',true);await load();}catch(e){msg('wmsg',e.message,false);}}
+function editServer(i){
+  editIndex=i;const s=cfg.servers[i];
+  document.getElementById('sname').value=s.name;
+  document.getElementById('surl').value=s.url;
+  document.getElementById('stoken').value='';
+  document.getElementById('sbtn').textContent='保存修改';
+  msg('smsg','正在编辑：'+s.name,true);
+}
+function cancelEdit(){editIndex=-1;document.getElementById('sname').value='';document.getElementById('surl').value='';document.getElementById('stoken').value='';document.getElementById('sbtn').textContent='添加服务器';}
+async function saveServer(){
+  const name=document.getElementById('sname').value.trim();
+  const url=document.getElementById('surl').value.trim();
+  const token=document.getElementById('stoken').value;
+  if(!name||!url){msg('smsg','名称和地址都不能为空',false);return;}
+  if(editIndex<0&&!token){msg('smsg','新增服务器必须填写 Token',false);return;}
+  try{
+    const body=editIndex<0?{action:'add',name,url,token}:{action:'update',index:editIndex,name,url,token};
+    await api('/api/server',body);msg('smsg',editIndex<0?'已添加':'已保存',true);cancelEdit();await load();
+  }catch(e){msg('smsg',e.message,false);}
+}
+async function deleteServer(i){if(!confirm('删除这台服务器吗？'))return;try{await api('/api/server',{action:'delete',index:i});msg('smsg','已删除',true);await load();}catch(e){msg('smsg',e.message,false);}}
+async function testServer(i){
+  msg('smsg','正在测试 '+(cfg.servers[i]?cfg.servers[i].name:'')+' ...',true);
+  try{const j=await api('/api/test',{index:i});msg('smsg','连接成功：CPU '+j.cpu+'% · 内存 '+j.mem+'% · 延迟 '+j.latency_ms+' ms',true);}
+  catch(e){msg('smsg','测试失败：'+e.message,false);}
+}
+async function saveSettings(){
+  const refresh_s=parseInt(document.getElementById('refresh').value,10);
+  const screen_off_s=parseInt(document.getElementById('screenoff').value,10);
+  try{await api('/api/settings',{refresh_s,screen_off_s});msg('gmsg','设置已保存',true);await load();}catch(e){msg('gmsg',e.message,false);}
+}
+async function exitPortal(){
+  try{await api('/api/exit',{});msg('gmsg','已退出配网，设备正在重连 Wi-Fi',true);}catch(e){msg('gmsg',e.message,false);}
+}
+load().catch(e=>msg('wmsg','读取配置失败：'+e.message,false));
+</script>
+</body>
+</html>

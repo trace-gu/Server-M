@@ -1,0 +1,19 @@
+# AI Passport server agent behind Caddy.
+#
+# 1. Point a DNS A/AAAA record at this server.
+# 2. Replace the hostname below.
+# 3. sudo caddy reload --config /etc/caddy/Caddyfile
+#
+# The agent must stay bound to 127.0.0.1:8899. Caddy obtains and renews the
+# public certificate, so the ESP32 can validate it against its CA bundle.
+
+monitor.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8899 {
+		header_up X-Real-IP {remote_host}
+	}
+	log {
+		output file /var/log/caddy/ai-passport.log
+		format json
+	}
+}
