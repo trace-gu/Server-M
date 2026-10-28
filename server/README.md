@@ -111,6 +111,7 @@ is required; self-signed certificates are rejected.
   "uptime": 86400,
   "temp": 46.5,
   "docker_run": 7,
+  "docker_total": 8,
   "docker_bad": 1,
   "ssl_days": 42,
   "trend": {"step": 300, "cpu": [12, 15], "mem": [63, 64]}
@@ -124,7 +125,7 @@ is required; self-signed certificates are rejected.
 | `net_rx`, `net_tx` | Bytes per second over the sampling window. |
 | `uptime` | Seconds since boot. |
 | `temp` | Celsius, when a thermal zone or panel value exists. |
-| `docker_run`, `docker_bad` | Running and non-running containers, when Docker is present. |
+| `docker_run`, `docker_total`, `docker_bad` | Running, all, and abnormal (not `running`) containers, when Docker is present. |
 | `ssl_days` | Days until `ssl_host` expires; `-1` when disabled or unreachable. |
 | `trend.step` | Seconds per trend point. |
 | `trend.cpu`, `trend.mem` | Up to 288 samples, oldest first. |

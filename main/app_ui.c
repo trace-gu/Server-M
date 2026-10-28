@@ -1,7 +1,7 @@
-// main/app_ui.c —— 服务器监控应用的界面层。
+// main/app_ui.c
 //
-// 视觉方向：深色仪表盘 + 青色强调，首页一次只呈现一台服务器的实时状态，
-// 与基线 demo 的浅色测试菜单和 ui_pixel 外壳完全不同。
+// 视觉方向：深色科技风，首屏为服务器列表（名称 + CPU/内存条），
+// 确认进入单台详情（双圆弧 + 24 小时迷你趋势）。
 // 免责：所有函数都要求调用方已持有 bsp_lvgl_lock()。
 #include "app_ui.h"
 
@@ -19,41 +19,55 @@ LV_FONT_DECLARE(app_font_20);
 
 static const char *TAG = "app_ui";
 
-#define C_BG       0x0B1220u
-#define C_BODY     0x0B1220u
-#define C_CARD     0x141E30u
-#define C_CARD_SEL 0x1D2B45u
-#define C_LINE     0x24334Cu
+#define C_BG       0x080D16u
+#define C_CARD     0x121C2Du
+#define C_CARD_SEL 0x1B2942u
+#define C_LINE     0x22324Bu
 #define C_INK      0xE9EFF8u
-#define C_MUTED    0x8FA2BCu
-#define C_ACCENT   0x3AD7C4u
+#define C_MUTED    0x7E93ADu
+#define C_ACCENT   0x35E0C8u
 #define C_OK       0x46D68C
 #define C_WARN     0xF3B94B
 #define C_CRIT     0xFF5F6D
 
-#define HOME_BODY_Y 36
-#define HOME_BODY_H 284
+// 列表：4 行一屏，超出时窗口跟随选中项滚动。
+#define LIST_ROWS   4
+#define LIST_Y0     38
+#define LIST_PITCH  64
+#define LIST_ROW_H  62
+#define BAR_MAX_W   120
+#define BAR_H       5
+
 #define WIFI_ROWS   (1 + APP_MAX_WIFI)
 
-static lv_obj_t *s_home;
-static lv_obj_t *s_home_body;
-static lv_obj_t *s_home_empty;
-static lv_obj_t *s_home_batt;
-static lv_obj_t *s_home_name;
-static lv_obj_t *s_home_idx;
-static lv_obj_t *s_home_state;
-static lv_obj_t *s_home_extra;
+// ---- 列表页控件 ----
+static lv_obj_t *s_list;
+static lv_obj_t *s_list_batt;
+static lv_obj_t *s_list_empty;
+static lv_obj_t *s_row[LIST_ROWS];
+static lv_obj_t *s_row_name[LIST_ROWS];
+static lv_obj_t *s_row_state[LIST_ROWS];
+static lv_obj_t *s_row_cpu_pct[LIST_ROWS];
+static lv_obj_t *s_row_mem_pct[LIST_ROWS];
+static lv_obj_t *s_row_cpu_fill[LIST_ROWS];
+static lv_obj_t *s_row_mem_fill[LIST_ROWS];
+
+// ---- 详情页控件 ----
+static lv_obj_t *s_detail;
+static lv_obj_t *s_detail_name;
+static lv_obj_t *s_detail_batt;
+static lv_obj_t *s_detail_state;
 static lv_obj_t *s_arc_cpu;
 static lv_obj_t *s_arc_mem;
 static lv_obj_t *s_arc_cpu_pct;
 static lv_obj_t *s_arc_mem_pct;
-static lv_obj_t *s_home_disk;
-static lv_obj_t *s_home_swap;
-static lv_obj_t *s_home_load;
-static lv_obj_t *s_home_temp;
-static lv_obj_t *s_home_rx;
-static lv_obj_t *s_home_tx;
-static lv_obj_t *s_home_uptime;
+static lv_obj_t *s_detail_disk;
+static lv_obj_t *s_detail_swap;
+static lv_obj_t *s_detail_load;
+static lv_obj_t *s_detail_docker;
+static lv_obj_t *s_detail_rx;
+static lv_obj_t *s_detail_tx;
+static lv_obj_t *s_detail_uptime;
 static lv_obj_t *s_chart_cpu;
 static lv_obj_t *s_chart_mem;
 static lv_chart_series_t *s_ser_cpu;
@@ -61,6 +75,7 @@ static lv_chart_series_t *s_ser_mem;
 static int64_t s_chart_fetched_ms;
 static int s_chart_index = -1;
 
+// ---- 设置 / Wi-Fi / 配网 ----
 static lv_obj_t *s_settings;
 static lv_obj_t *s_set_row[7];
 static lv_obj_t *s_set_val[7];
@@ -151,7 +166,7 @@ static void screen_swap(lv_obj_t **slot, lv_obj_t *next)
     if (old) lv_obj_delete(old);
 }
 
-// 只缓存当前页,避免首页/设置/Wi-Fi 页同时常驻挤爆 LVGL 堆。
+// 只缓存当前页,避免列表/详情/设置/Wi-Fi 页同时常驻挤爆 LVGL 堆。
 // 配网页由 portal_show 单独管理,不在这里删除。
 static void drop_screen(lv_obj_t **slot)
 {
@@ -233,18 +248,17 @@ static void font_check_text(const lv_font_t *font, const char *name, const char 
 esp_err_t app_ui_init(void)
 {
     static const char *probe =
-        "服务器监控电量在线离线等待数据毫秒磁盘交换负载温度下行上行运行时长天时备份正常失败"
-        "还没有服务器长按确定进入设置用手机配网添加未配置未连接连接中已连接已保存正在常亮开启"
-        "刷新间隔自动熄屏设备信息返回主界面网络热点名称密码浏览器打开已连接热点后按网页提示配置"
-        "和都可上下切换请先在拉取无法面板刚刚秒前分前时前今天连接失败"
-        "使命内状尚退获取屏幕亮度";
+        "服务器监控列表详情磁盘交换负载下行上行运行时长在线离线待拉取未联网电量"
+        "长按设置返回刷新趋势当前台个已启动运行中暂无还没有服务器用手机配网添加"
+        "屏幕亮度间隔自动熄屏网络热点名称密码浏览器打开已连接提示配置失败成功"
+        "进入主界面数据正在等待毫秒刚刚秒前分前时前今天";
     font_check_text(&app_font_16, "app_font_16", probe);
     font_check_text(&app_font_20, "app_font_20", probe);
     return ESP_OK;
 }
 
 // ---------------------------------------------------------------------------
-// 首页
+// 通用小部件
 // ---------------------------------------------------------------------------
 static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size)
 {
@@ -287,89 +301,11 @@ static lv_obj_t *chart_create(lv_obj_t *parent, int x, int y, int w, int h, uint
     return chart;
 }
 
-static void home_build(void)
+static lv_obj_t *bar_create(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
 {
-    lv_obj_t *scr = screen_create();
-
-    label_create(scr, "服务器监控", &app_font_20, C_INK, 10, 6, 0);
-    s_home_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 146, 10, 84);
-    text_right(s_home_batt);
-    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
-    lv_obj_set_style_radius(rule, 0, 0);
-
-    s_home_body = lv_obj_create(scr);
-    lv_obj_set_pos(s_home_body, 0, HOME_BODY_Y);
-    lv_obj_set_size(s_home_body, 240, HOME_BODY_H);
-    lv_obj_set_style_bg_opa(s_home_body, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_home_body, 0, 0);
-    lv_obj_set_style_pad_all(s_home_body, 0, 0);
-    lv_obj_remove_flag(s_home_body, LV_OBJ_FLAG_SCROLLABLE);
-
-    s_home_name = label_create(s_home_body, "未命名服务器", &app_font_20, C_INK, 10, 4, 158);
-    s_home_idx = label_create(s_home_body, "0/0", &app_font_16, C_MUTED, 180, 8, 50);
-    text_right(s_home_idx);
-    s_home_state = label_create(s_home_body, "等待 Wi-Fi", &app_font_16, C_MUTED, 10, 28, 220);
-    s_home_extra = label_create(s_home_body, "请在设置中配置", &app_font_16, C_MUTED, 10, 46, 220);
-
-    s_arc_cpu = arc_create(s_home_body, 22, 64, 76);
-    s_arc_mem = arc_create(s_home_body, 142, 64, 76);
-    // 16px 字体的行高是 20px,每行至少间隔 20px,否则相邻文字会压在一起。
-    s_arc_cpu_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 22, 84, 76);
-    text_center(s_arc_cpu_pct);
-    s_arc_mem_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 142, 84, 76);
-    text_center(s_arc_mem_pct);
-    lv_obj_t *cpu_name = label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 22, 112, 76);
-    text_center(cpu_name);
-    lv_obj_t *mem_name = label_create(s_home_body, "内存", &app_font_16, C_MUTED, 142, 112, 76);
-    text_center(mem_name);
-
-    label_create(s_home_body, "磁盘", &app_font_16, C_MUTED, 10, 144, 40);
-    s_home_disk = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 144, 56);
-    label_create(s_home_body, "交换", &app_font_16, C_MUTED, 124, 144, 40);
-    s_home_swap = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 144, 52);
-
-    label_create(s_home_body, "负载", &app_font_16, C_MUTED, 10, 164, 40);
-    s_home_load = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 164, 56);
-    label_create(s_home_body, "温度", &app_font_16, C_MUTED, 124, 164, 40);
-    s_home_temp = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 164, 58);
-
-    label_create(s_home_body, "下行", &app_font_16, C_MUTED, 10, 184, 40);
-    s_home_rx = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 184, 66);
-    label_create(s_home_body, "上行", &app_font_16, C_MUTED, 124, 184, 40);
-    s_home_tx = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 184, 58);
-
-    label_create(s_home_body, "运行时长", &app_font_16, C_MUTED, 10, 204, 72);
-    s_home_uptime = label_create(s_home_body, "--", &app_font_16, C_INK, 86, 204, 140);
-
-    label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 6, 224, 30);
-    s_chart_cpu = chart_create(s_home_body, 36, 228, 194, 10, C_ACCENT);
-    s_ser_cpu = lv_chart_add_series(s_chart_cpu, lv_color_hex(C_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
-    label_create(s_home_body, "内存", &app_font_16, C_MUTED, 6, 244, 30);
-    s_chart_mem = chart_create(s_home_body, 36, 248, 194, 10, C_WARN);
-    s_ser_mem = lv_chart_add_series(s_chart_mem, lv_color_hex(C_WARN), LV_CHART_AXIS_PRIMARY_Y);
-
-    lv_obj_t *hint = label_create(s_home_body, "上下切换  长按确定设置", &app_font_16, C_MUTED,
-                                  10, 264, 220);
-    text_center(hint);
-
-    s_home_empty = lv_obj_create(scr);
-    lv_obj_set_pos(s_home_empty, 0, HOME_BODY_Y);
-    lv_obj_set_size(s_home_empty, 240, HOME_BODY_H);
-    lv_obj_set_style_bg_opa(s_home_empty, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(s_home_empty, 0, 0);
-    lv_obj_set_style_pad_all(s_home_empty, 0, 0);
-    lv_obj_remove_flag(s_home_empty, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *empty_title = label_create(s_home_empty, "还没有服务器", &app_font_20, C_INK,
-                                         0, 64, 240);
-    text_center(empty_title);
-    lv_obj_t *empty_hint = label_create(s_home_empty, "用手机配网添加服务器", &app_font_16,
-                                        C_MUTED, 0, 104, 240);
-    text_center(empty_hint);
-    lv_obj_t *empty_key = label_create(s_home_empty, "长按确定进入设置", &app_font_16,
-                                       C_ACCENT, 0, 132, 240);
-    text_center(empty_key);
-
-    screen_swap(&s_home, scr);
+    lv_obj_t *bar = panel_create(parent, x, y, w, h, color);
+    lv_obj_set_style_radius(bar, 3, 0);
+    return bar;
 }
 
 static void set_percent(lv_obj_t *label, int value)
@@ -379,13 +315,226 @@ static void set_percent(lv_obj_t *label, int value)
     text_set(label, buf);
 }
 
-static void set_arc(lv_obj_t *arc, lv_obj_t *label, int value)
+static void set_bar(lv_obj_t *fill, int value)
 {
     int safe = value < 0 ? 0 : (value > 100 ? 100 : value);
-    if (lv_arc_get_value(arc) != safe) lv_arc_set_value(arc, safe);
-    uint32_t color = value < 0 ? C_MUTED : level_color(safe);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_INDICATOR);
-    set_percent(label, value);
+    lv_obj_set_width(fill, safe * BAR_MAX_W / 100);
+}
+
+// ---------------------------------------------------------------------------
+// 服务器列表
+// ---------------------------------------------------------------------------
+static void header_add(lv_obj_t *scr, const char *title, const char *subtitle)
+{
+    label_create(scr, title, &app_font_20, C_INK, 10, 6, 0);
+    lv_obj_t *sub = label_create(scr, subtitle, &app_font_16, C_MUTED, 120, 10, 110);
+    text_right(sub);
+    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
+    lv_obj_set_style_radius(rule, 0, 0);
+}
+
+static void list_build(void)
+{
+    lv_obj_t *scr = screen_create();
+    label_create(scr, "服务器", &app_font_20, C_INK, 10, 6, 0);
+    s_list_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 146, 10, 84);
+    text_right(s_list_batt);
+    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
+    lv_obj_set_style_radius(rule, 0, 0);
+
+    for (int i = 0; i < LIST_ROWS; i++) {
+        int y = LIST_Y0 + i * LIST_PITCH;
+        s_row[i] = panel_create(scr, 8, y, 224, LIST_ROW_H, C_CARD);
+        s_row_name[i] = label_create(s_row[i], "", &app_font_16, C_INK, 12, 0, 148);
+        s_row_state[i] = label_create(s_row[i], "", &app_font_16, C_MUTED, 158, 0, 54);
+        text_right(s_row_state[i]);
+
+        label_create(s_row[i], "CPU", &app_font_16, C_MUTED, 12, 22, 34);
+        bar_create(s_row[i], 50, 28, BAR_MAX_W, BAR_H, C_LINE);
+        s_row_cpu_fill[i] = bar_create(s_row[i], 50, 28, 0, BAR_H, C_ACCENT);
+        s_row_cpu_pct[i] = label_create(s_row[i], "--", &app_font_16, C_ACCENT, 174, 20, 38);
+        text_right(s_row_cpu_pct[i]);
+
+        label_create(s_row[i], "内存", &app_font_16, C_MUTED, 12, 40, 34);
+        bar_create(s_row[i], 50, 46, BAR_MAX_W, BAR_H, C_LINE);
+        s_row_mem_fill[i] = bar_create(s_row[i], 50, 46, 0, BAR_H, C_WARN);
+        s_row_mem_pct[i] = label_create(s_row[i], "--", &app_font_16, C_WARN, 174, 38, 38);
+        text_right(s_row_mem_pct[i]);
+    }
+
+    s_list_empty = lv_obj_create(scr);
+    lv_obj_set_pos(s_list_empty, 0, LIST_Y0);
+    lv_obj_set_size(s_list_empty, 240, 240);
+    lv_obj_set_style_bg_opa(s_list_empty, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(s_list_empty, 0, 0);
+    lv_obj_set_style_pad_all(s_list_empty, 0, 0);
+    lv_obj_remove_flag(s_list_empty, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *title = label_create(s_list_empty, "还没有服务器", &app_font_20, C_INK, 0, 56, 240);
+    text_center(title);
+    lv_obj_t *hint = label_create(s_list_empty, "用手机配网添加", &app_font_16, C_MUTED, 0, 96, 240);
+    text_center(hint);
+    lv_obj_t *key = label_create(s_list_empty, "长按确定进入设置", &app_font_16, C_ACCENT, 0, 124, 240);
+    text_center(key);
+
+    lv_obj_t *foot = label_create(scr, "上下切换   确定查看   长按确定设置",
+                                  &app_font_16, C_MUTED, 10, 294, 220);
+    text_center(foot);
+
+    s_list = scr;
+}
+
+static const char *row_state_text(const app_server_status_t *st, const app_wifi_info_t *wifi)
+{
+    bool linked = wifi && wifi->state == APP_WIFI_CONNECTED;
+    if (!st || !st->valid) return linked ? "待拉取" : "未联网";
+    if (!st->online) return "离线";
+    return "在线";
+}
+
+static uint32_t row_state_color(const char *text)
+{
+    if (strcmp(text, "在线") == 0) return C_OK;
+    if (strcmp(text, "离线") == 0) return C_CRIT;
+    if (strcmp(text, "未联网") == 0) return C_WARN;
+    return C_MUTED;
+}
+
+static void list_apply(const app_config_t *cfg, int selected,
+                       const app_server_status_t *statuses, const app_wifi_info_t *wifi,
+                       int battery_soc)
+{
+    if (!s_list || !cfg) return;
+
+    char buf[64];
+    if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
+    else snprintf(buf, sizeof(buf), "电量 --");
+    text_set(s_list_batt, buf);
+
+    int count = cfg->server_count;
+    if (count == 0) {
+        lv_obj_add_flag(s_row[0], LV_OBJ_FLAG_HIDDEN);
+        for (int i = 1; i < LIST_ROWS; i++) lv_obj_add_flag(s_row[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(s_list_empty, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_add_flag(s_list_empty, LV_OBJ_FLAG_HIDDEN);
+
+    if (selected < 0) selected = 0;
+    if (selected >= count) selected = count - 1;
+    // 窗口滚动：选中项尽量保持在第二行,避免每按一下都跳屏。
+    int win = selected - 1;
+    if (win < 0) win = 0;
+    if (win > count - LIST_ROWS) win = count - LIST_ROWS;
+    if (win < 0) win = 0;
+
+    for (int i = 0; i < LIST_ROWS; i++) {
+        int index = win + i;
+        if (index >= count) {
+            lv_obj_add_flag(s_row[i], LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_remove_flag(s_row[i], LV_OBJ_FLAG_HIDDEN);
+
+        bool sel = index == selected;
+        lv_obj_set_style_bg_color(s_row[i], lv_color_hex(sel ? C_CARD_SEL : C_CARD), 0);
+        lv_obj_set_style_border_width(s_row[i], sel ? 2 : 0, 0);
+        lv_obj_set_style_border_color(s_row[i], lv_color_hex(C_ACCENT), 0);
+
+        snprintf(buf, sizeof(buf), "%d  %s", index + 1, cfg->servers[index].name);
+        text_set(s_row_name[i], buf);
+
+        const app_server_status_t *st = statuses ? &statuses[index] : NULL;
+        const char *state = row_state_text(st, wifi);
+        text_set(s_row_state[i], state);
+        lv_obj_set_style_text_color(s_row_state[i], lv_color_hex(row_state_color(state)), 0);
+
+        bool known = st && st->valid && st->cpu >= 0 && st->online;
+        set_percent(s_row_cpu_pct[i], known ? st->cpu : -1);
+        set_percent(s_row_mem_pct[i], known ? st->mem : -1);
+        set_bar(s_row_cpu_fill[i], known ? st->cpu : -1);
+        set_bar(s_row_mem_fill[i], known ? st->mem : -1);
+        lv_obj_set_style_bg_color(s_row_cpu_fill[i],
+                                  lv_color_hex(known ? level_color(st->cpu) : C_LINE), 0);
+    }
+}
+
+void app_ui_list_show(const app_config_t *cfg, int selected,
+                      const app_server_status_t *statuses,
+                      const app_wifi_info_t *wifi, int battery_soc)
+{
+    if (!s_list) list_build();
+    list_apply(cfg, selected, statuses, wifi, battery_soc);
+    lv_screen_load(s_list);
+    drop_screen(&s_detail);
+    drop_screen(&s_settings);
+    drop_screen(&s_wifi);
+}
+
+void app_ui_list_update(const app_config_t *cfg, int selected,
+                        const app_server_status_t *statuses,
+                        const app_wifi_info_t *wifi, int battery_soc)
+{
+    list_apply(cfg, selected, statuses, wifi, battery_soc);
+}
+
+// ---------------------------------------------------------------------------
+// 单台服务器详情
+// ---------------------------------------------------------------------------
+static void detail_build(void)
+{
+    lv_obj_t *scr = screen_create();
+    s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 4, 148);
+    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 10, 74);
+    text_right(s_detail_batt);
+    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
+    lv_obj_set_style_radius(rule, 0, 0);
+
+    s_detail_state = label_create(scr, "等待数据", &app_font_16, C_MUTED, 10, 38, 220);
+
+    s_arc_cpu = arc_create(scr, 22, 62, 76);
+    s_arc_mem = arc_create(scr, 142, 62, 76);
+    s_arc_cpu_pct = label_create(scr, "--", &app_font_20, C_INK, 22, 82, 76);
+    text_center(s_arc_cpu_pct);
+    s_arc_mem_pct = label_create(scr, "--", &app_font_20, C_INK, 142, 82, 76);
+    text_center(s_arc_mem_pct);
+    lv_obj_t *cpu_name = label_create(scr, "CPU", &app_font_16, C_MUTED, 22, 110, 76);
+    text_center(cpu_name);
+    lv_obj_t *mem_name = label_create(scr, "内存", &app_font_16, C_MUTED, 142, 110, 76);
+    text_center(mem_name);
+
+    label_create(scr, "磁盘", &app_font_16, C_MUTED, 10, 142, 40);
+    s_detail_disk = label_create(scr, "--", &app_font_16, C_INK, 54, 142, 56);
+    label_create(scr, "交换", &app_font_16, C_MUTED, 124, 142, 40);
+    s_detail_swap = label_create(scr, "--", &app_font_16, C_INK, 168, 142, 52);
+
+    label_create(scr, "负载", &app_font_16, C_MUTED, 10, 162, 40);
+    s_detail_load = label_create(scr, "--", &app_font_16, C_INK, 54, 162, 56);
+    label_create(scr, "容器", &app_font_16, C_MUTED, 124, 162, 40);
+    s_detail_docker = label_create(scr, "--", &app_font_16, C_INK, 168, 162, 58);
+
+    label_create(scr, "下行", &app_font_16, C_MUTED, 10, 182, 40);
+    s_detail_rx = label_create(scr, "--", &app_font_16, C_INK, 54, 182, 66);
+    label_create(scr, "上行", &app_font_16, C_MUTED, 124, 182, 40);
+    s_detail_tx = label_create(scr, "--", &app_font_16, C_INK, 168, 182, 58);
+
+    label_create(scr, "运行时长", &app_font_16, C_MUTED, 10, 202, 72);
+    s_detail_uptime = label_create(scr, "--", &app_font_16, C_INK, 86, 202, 140);
+
+    // 24 小时趋势：两行各 20px 行高,不能靠得更近,否则文字会重叠。
+    label_create(scr, "CPU", &app_font_16, C_MUTED, 6, 224, 30);
+    s_chart_cpu = chart_create(scr, 36, 228, 194, 10, C_ACCENT);
+    s_ser_cpu = lv_chart_add_series(s_chart_cpu, lv_color_hex(C_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
+    label_create(scr, "内存", &app_font_16, C_MUTED, 6, 244, 30);
+    s_chart_mem = chart_create(scr, 36, 248, 194, 10, C_WARN);
+    s_ser_mem = lv_chart_add_series(s_chart_mem, lv_color_hex(C_WARN), LV_CHART_AXIS_PRIMARY_Y);
+
+    lv_obj_t *foot = label_create(scr, "确定刷新   长按确定返回", &app_font_16, C_MUTED,
+                                  10, 266, 220);
+    text_center(foot);
+
+    s_chart_index = -1;
+    s_chart_fetched_ms = 0;
+    s_detail = scr;
 }
 
 static void trend_apply(lv_obj_t *chart, lv_chart_series_t *series,
@@ -400,112 +549,89 @@ static void trend_apply(lv_obj_t *chart, lv_chart_series_t *series,
     lv_chart_refresh(chart);
 }
 
-static void home_update(const app_config_t *cfg, int selected,
-                        const app_server_status_t *status, const app_trend_t *trend,
-                        int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
+static void set_arc(lv_obj_t *arc, lv_obj_t *label, int value)
 {
-    if (!s_home || !cfg || !wifi) return;
+    int safe = value < 0 ? 0 : (value > 100 ? 100 : value);
+    if (lv_arc_get_value(arc) != safe) lv_arc_set_value(arc, safe);
+    uint32_t color = value < 0 ? C_MUTED : level_color(safe);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_INDICATOR);
+    set_percent(label, value);
+}
+
+static void detail_apply(const app_config_t *cfg, int selected,
+                         const app_server_status_t *status, const app_trend_t *trend,
+                         int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
+{
+    if (!s_detail || !cfg) return;
 
     char buf[96];
     if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
     else snprintf(buf, sizeof(buf), "电量 --");
-    text_set(s_home_batt, buf);
+    text_set(s_detail_batt, buf);
 
-    if (cfg->server_count == 0) {
-        lv_obj_add_flag(s_home_body, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(s_home_empty, LV_OBJ_FLAG_HIDDEN);
-        text_set(s_home_idx, "0/0");
-        return;
+    if (selected < 0 || selected >= cfg->server_count) {
+        text_set(s_detail_name, "服务器");
+    } else {
+        text_set(s_detail_name, cfg->servers[selected].name);
     }
 
-    lv_obj_remove_flag(s_home_body, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(s_home_empty, LV_OBJ_FLAG_HIDDEN);
-
-    if (selected < 0 || selected >= cfg->server_count) selected = 0;
-    text_set(s_home_name, cfg->servers[selected].name);
-    snprintf(buf, sizeof(buf), "%d/%d", selected + 1, cfg->server_count);
-    text_set(s_home_idx, buf);
-
-    if (wifi->state != APP_WIFI_CONNECTED) {
-        if (wifi->state == APP_WIFI_CONNECTING) text_set(s_home_state, "Wi-Fi 连接中");
-        else text_set(s_home_state, "Wi-Fi 未连接");
-        lv_obj_set_style_text_color(s_home_state, lv_color_hex(C_WARN), 0);
-        text_set(s_home_extra, "请先在设置中连接 Wi-Fi");
-        lv_obj_set_style_text_color(s_home_extra, lv_color_hex(C_MUTED), 0);
+    if (!wifi || wifi->state != APP_WIFI_CONNECTED) {
+        text_set(s_detail_state, "Wi-Fi 未连接");
+        lv_obj_set_style_text_color(s_detail_state, lv_color_hex(C_WARN), 0);
     } else if (!status || !status->valid) {
-        text_set(s_home_state, "等待数据");
-        lv_obj_set_style_text_color(s_home_state, lv_color_hex(C_MUTED), 0);
-        text_set(s_home_extra, "正在拉取服务器状态");
-        lv_obj_set_style_text_color(s_home_extra, lv_color_hex(C_MUTED), 0);
+        text_set(s_detail_state, "等待数据");
+        lv_obj_set_style_text_color(s_detail_state, lv_color_hex(C_MUTED), 0);
     } else if (!status->online) {
-        text_set(s_home_state, "离线");
-        lv_obj_set_style_text_color(s_home_state, lv_color_hex(C_CRIT), 0);
-        text_set(s_home_extra, status->err[0] ? status->err : "无法连接服务器");
-        lv_obj_set_style_text_color(s_home_extra, lv_color_hex(C_CRIT), 0);
+        snprintf(buf, sizeof(buf), "离线 %s", status->err[0] ? status->err : "");
+        text_set(s_detail_state, buf);
+        lv_obj_set_style_text_color(s_detail_state, lv_color_hex(C_CRIT), 0);
     } else {
         char ago[24] = "";
         if (status->fetched_ms > 0) {
             int64_t now_ms = esp_timer_get_time() / 1000;
             app_fmt_ago(ago, sizeof(ago), now_ms - status->fetched_ms);
         }
-        if (status->panel[0] && ago[0]) {
-            snprintf(buf, sizeof(buf), "在线  %d毫秒  %s  %s", latency_ms, status->panel, ago);
-        } else if (status->panel[0]) {
-            snprintf(buf, sizeof(buf), "在线  %d毫秒  %s", latency_ms, status->panel);
-        } else if (ago[0]) {
-            snprintf(buf, sizeof(buf), "在线  %d毫秒  %s", latency_ms, ago);
-        } else {
-            snprintf(buf, sizeof(buf), "在线  %d毫秒", latency_ms);
-        }
-        text_set(s_home_state, buf);
-        lv_obj_set_style_text_color(s_home_state, lv_color_hex(C_OK), 0);
-
-        buf[0] = '\0';
-        if (status->docker_run >= 0) {
-            snprintf(buf, sizeof(buf), "Docker %d/%d", status->docker_run,
-                     status->docker_bad >= 0 ? status->docker_bad : 0);
-        }
-        if (status->ssl_days >= 0) {
-            char days[16];
-            app_fmt_days(days, sizeof(days), status->ssl_days);
-            size_t used = strlen(buf);
-            snprintf(buf + used, sizeof(buf) - used, "%sSSL %s", used ? "   " : "", days);
-        }
-        if (status->backup_state >= 0) {
-            size_t used = strlen(buf);
-            snprintf(buf + used, sizeof(buf) - used, "%s%s", used ? "   " : "",
-                     status->backup_state ? "备份正常" : "备份失败");
-        }
-        if (buf[0] == '\0') snprintf(buf, sizeof(buf), "数据正常");
-        text_set(s_home_extra, buf);
-        lv_obj_set_style_text_color(s_home_extra, lv_color_hex(C_MUTED), 0);
+        if (ago[0]) snprintf(buf, sizeof(buf), "在线 %d毫秒 %s", latency_ms, ago);
+        else snprintf(buf, sizeof(buf), "在线 %d毫秒", latency_ms);
+        text_set(s_detail_state, buf);
+        lv_obj_set_style_text_color(s_detail_state, lv_color_hex(C_OK), 0);
     }
 
-    bool have_metrics = status && status->valid && status->cpu >= 0;
-    set_arc(s_arc_cpu, s_arc_cpu_pct, have_metrics ? status->cpu : -1);
-    set_arc(s_arc_mem, s_arc_mem_pct, have_metrics ? status->mem : -1);
+    bool have = status && status->valid && status->cpu >= 0 && status->online;
+    set_arc(s_arc_cpu, s_arc_cpu_pct, have ? status->cpu : -1);
+    set_arc(s_arc_mem, s_arc_mem_pct, have ? status->mem : -1);
 
     char tmp[24];
-    set_percent(s_home_disk, have_metrics ? status->disk : -1);
-    set_percent(s_home_swap, have_metrics ? status->swap : -1);
-    app_fmt_load(tmp, sizeof(tmp), have_metrics ? status->load1_x100 : -1);
-    text_set(s_home_load, tmp);
-    app_fmt_temp(tmp, sizeof(tmp), have_metrics ? status->temp_c_x10 : -1);
-    text_set(s_home_temp, tmp);
-    if (have_metrics) {
-        app_fmt_rate(tmp, sizeof(tmp), status->net_rx_bps);
-        text_set(s_home_rx, tmp);
-        app_fmt_rate(tmp, sizeof(tmp), status->net_tx_bps);
-        text_set(s_home_tx, tmp);
-        app_fmt_uptime(tmp, sizeof(tmp), status->uptime_s);
-        text_set(s_home_uptime, tmp);
+    set_percent(s_detail_disk, have ? status->disk : -1);
+    set_percent(s_detail_swap, have ? status->swap : -1);
+    app_fmt_load(tmp, sizeof(tmp), have ? status->load1_x100 : -1);
+    text_set(s_detail_load, tmp);
+
+    if (have && status->docker_run >= 0) {
+        if (status->docker_total >= 0) {
+            snprintf(tmp, sizeof(tmp), "%d/%d", status->docker_run, status->docker_total);
+        } else {
+            snprintf(tmp, sizeof(tmp), "%d", status->docker_run);
+        }
+        text_set(s_detail_docker, tmp);
     } else {
-        text_set(s_home_rx, "--");
-        text_set(s_home_tx, "--");
-        text_set(s_home_uptime, "--");
+        text_set(s_detail_docker, "--");
     }
 
-    bool chart_valid = have_metrics && status->fetched_ms > 0;
+    if (have) {
+        app_fmt_rate(tmp, sizeof(tmp), status->net_rx_bps);
+        text_set(s_detail_rx, tmp);
+        app_fmt_rate(tmp, sizeof(tmp), status->net_tx_bps);
+        text_set(s_detail_tx, tmp);
+        app_fmt_uptime(tmp, sizeof(tmp), status->uptime_s);
+        text_set(s_detail_uptime, tmp);
+    } else {
+        text_set(s_detail_rx, "--");
+        text_set(s_detail_tx, "--");
+        text_set(s_detail_uptime, "--");
+    }
+
+    bool chart_valid = have && status->fetched_ms > 0;
     if (selected != s_chart_index ||
         (chart_valid && status->fetched_ms != s_chart_fetched_ms)) {
         s_chart_index = selected;
@@ -522,36 +648,29 @@ static void home_update(const app_config_t *cfg, int selected,
     }
 }
 
-void app_ui_home_show(const app_config_t *cfg, int selected,
-                      const app_server_status_t *status, const app_trend_t *trend,
-                      int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
+void app_ui_detail_show(const app_config_t *cfg, int selected,
+                        const app_server_status_t *status, const app_trend_t *trend,
+                        int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
 {
-    if (!s_home) home_build();
-    home_update(cfg, selected, status, trend, latency_ms, wifi, battery_soc);
-    lv_screen_load(s_home);
+    drop_screen(&s_detail);
+    detail_build();
+    detail_apply(cfg, selected, status, trend, latency_ms, wifi, battery_soc);
+    lv_screen_load(s_detail);
+    drop_screen(&s_list);
     drop_screen(&s_settings);
     drop_screen(&s_wifi);
 }
 
-void app_ui_home_update(const app_config_t *cfg, int selected,
-                        const app_server_status_t *status, const app_trend_t *trend,
-                        int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
+void app_ui_detail_update(const app_config_t *cfg, int selected,
+                          const app_server_status_t *status, const app_trend_t *trend,
+                          int latency_ms, const app_wifi_info_t *wifi, int battery_soc)
 {
-    home_update(cfg, selected, status, trend, latency_ms, wifi, battery_soc);
+    detail_apply(cfg, selected, status, trend, latency_ms, wifi, battery_soc);
 }
 
 // ---------------------------------------------------------------------------
 // 设置页
 // ---------------------------------------------------------------------------
-static void header_add(lv_obj_t *scr, const char *title, const char *subtitle)
-{
-    label_create(scr, title, &app_font_20, C_INK, 10, 6, 0);
-    lv_obj_t *sub = label_create(scr, subtitle, &app_font_16, C_MUTED, 156, 10, 74);
-    text_right(sub);
-    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
-    lv_obj_set_style_radius(rule, 0, 0);
-}
-
 static const char *wifi_state_cn(const app_wifi_info_t *wifi)
 {
     if (!wifi) return "未连接";
@@ -563,15 +682,10 @@ static const char *wifi_state_cn(const app_wifi_info_t *wifi)
     }
 }
 
-static lv_obj_t *settings_build(const app_config_t *cfg, const app_wifi_info_t *wifi,
-                                int selected, int battery_soc)
+static lv_obj_t *settings_build(void)
 {
-    (void)cfg;
-    (void)wifi;
-    (void)selected;
-    (void)battery_soc;
     lv_obj_t *scr = screen_create();
-    header_add(scr, "设置", "长按返回");
+    header_add(scr, "设置", "长按确定返回");
     // 7 行必须压缩行距:40px 间距会超出 240px 屏幕。
     for (int i = 0; i < 7; i++) {
         s_set_row[i] = panel_create(scr, 10, 42 + i * 28, 220, 26, C_CARD);
@@ -617,10 +731,11 @@ static void settings_apply(const app_config_t *cfg, const app_wifi_info_t *wifi,
 void app_ui_settings_show(const app_config_t *cfg, const app_wifi_info_t *wifi,
                           int selected, int battery_soc)
 {
-    lv_obj_t *next = settings_build(cfg, wifi, selected, battery_soc);
+    lv_obj_t *next = settings_build();
     screen_swap(&s_settings, next);
     settings_apply(cfg, wifi, selected, battery_soc);
-    drop_screen(&s_home);
+    drop_screen(&s_list);
+    drop_screen(&s_detail);
     drop_screen(&s_wifi);
 }
 
@@ -633,14 +748,13 @@ void app_ui_settings_update(const app_config_t *cfg, const app_wifi_info_t *wifi
 // ---------------------------------------------------------------------------
 // Wi-Fi 页
 // ---------------------------------------------------------------------------
-static lv_obj_t *wifi_build(const app_config_t *cfg, const app_wifi_info_t *wifi, int selected)
+static lv_obj_t *wifi_build(const app_config_t *cfg, int selected)
 {
     (void)selected;
-    (void)wifi;
     int rows = 1 + cfg->wifi_count;
     if (rows > WIFI_ROWS) rows = WIFI_ROWS;
     lv_obj_t *scr = screen_create();
-    header_add(scr, "Wi-Fi 网络", "长按返回");
+    header_add(scr, "Wi-Fi 网络", "长按确定返回");
     s_wifi_state = label_create(scr, "", &app_font_16, C_MUTED, 10, 38, 220);
 
     for (int i = 0; i < rows; i++) {
@@ -695,10 +809,11 @@ static void wifi_apply(const app_config_t *cfg, const app_wifi_info_t *wifi, int
 
 void app_ui_wifi_show(const app_config_t *cfg, const app_wifi_info_t *wifi, int selected)
 {
-    lv_obj_t *next = wifi_build(cfg, wifi, selected);
+    lv_obj_t *next = wifi_build(cfg, selected);
     screen_swap(&s_wifi, next);
     wifi_apply(cfg, wifi, selected);
-    drop_screen(&s_home);
+    drop_screen(&s_list);
+    drop_screen(&s_detail);
     drop_screen(&s_settings);
 }
 
@@ -713,7 +828,7 @@ void app_ui_wifi_update(const app_config_t *cfg, const app_wifi_info_t *wifi, in
 static void portal_build(void)
 {
     lv_obj_t *scr = screen_create();
-    header_add(scr, "手机配网", "长按退出");
+    header_add(scr, "手机配网", "长按确定退出");
 
     lv_obj_t *card = panel_create(scr, 10, 50, 220, 190, C_CARD);
     label_create(card, "热点名称", &app_font_16, C_MUTED, 16, 10, 188);
@@ -721,8 +836,7 @@ static void portal_build(void)
     label_create(card, "热点密码", &app_font_16, C_MUTED, 16, 60, 188);
     s_portal_pass = label_create(card, "--------", &app_font_20, C_INK, 16, 78, 188);
     label_create(card, "浏览器打开", &app_font_16, C_MUTED, 16, 110, 188);
-    lv_obj_t *url = label_create(card, "http://192.168.4.1", &app_font_20, C_ACCENT, 16, 128, 188);
-    (void)url;
+    label_create(card, "http://192.168.4.1", &app_font_20, C_ACCENT, 16, 128, 188);
     s_portal_elapsed = label_create(card, "已开启 0 秒", &app_font_16, C_MUTED, 16, 158, 188);
 
     lv_obj_t *hint1 = label_create(scr, "连接热点后按网页提示配置", &app_font_16, C_INK,
@@ -754,7 +868,8 @@ void app_ui_portal_show(const char *ssid, const char *pass, uint32_t elapsed_s, 
     text_set(s_portal_pass, pass && pass[0] ? pass : "--------");
     portal_apply(elapsed_s, ap_active);
     lv_screen_load(s_portal);
-    drop_screen(&s_home);
+    drop_screen(&s_list);
+    drop_screen(&s_detail);
     drop_screen(&s_settings);
     drop_screen(&s_wifi);
 }

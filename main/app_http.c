@@ -13,7 +13,9 @@
 #include <time.h>
 
 #define RESP_MAX 16384
-#define HTTP_TIMEOUT_MS 8000
+// TLS 握手在弱信号下可能超过 8 秒; 15 秒 + 一次重试能显著减少误报离线。
+#define HTTP_TIMEOUT_MS 15000
+#define HTTP_ATTEMPTS 2
 
 typedef struct {
     char *buf;
@@ -119,6 +121,7 @@ static esp_err_t parse_body(const char *body, app_server_status_t *out, app_tren
     out->temp_c_x10 = -1;
     out->ssl_days = -1;
     out->docker_run = -1;
+    out->docker_total = -1;
     out->docker_bad = -1;
     out->backup_state = -1;
 
@@ -136,6 +139,7 @@ static esp_err_t parse_body(const char *body, app_server_status_t *out, app_tren
     if (json_num(root, "temp", &value)) out->temp_c_x10 = (int16_t)clamp_int((int)llround(value * 10), -400, 1500);
     if (json_num(root, "ssl_days", &value)) out->ssl_days = (int16_t)clamp_int((int)llround(value), -1, 3650);
     if (json_num(root, "docker_run", &value)) out->docker_run = (int16_t)clamp_int((int)llround(value), -1, 10000);
+    if (json_num(root, "docker_total", &value)) out->docker_total = (int16_t)clamp_int((int)llround(value), -1, 10000);
     if (json_num(root, "docker_bad", &value)) out->docker_bad = (int16_t)clamp_int((int)llround(value), -1, 10000);
     if (json_num(root, "net_rx", &value)) {
         out->net_rx_bps = value < 0 ? 0 : (value > 4294967295.0 ? 4294967295u : (uint32_t)value);
@@ -171,6 +175,7 @@ esp_err_t app_fetch_status(const app_server_cfg_t *srv, app_server_status_t *out
     out->temp_c_x10 = -1;
     out->ssl_days = -1;
     out->docker_run = -1;
+    out->docker_total = -1;
     out->docker_bad = -1;
     out->backup_state = -1;
     if (trend) memset(trend, 0, sizeof(*trend));
@@ -188,32 +193,46 @@ esp_err_t app_fetch_status(const app_server_cfg_t *srv, app_server_status_t *out
     }
     ctx.cap = RESP_MAX;
 
-    esp_http_client_config_t cfg = {
-        .url = srv->url,
-        .method = HTTP_METHOD_GET,
-        .timeout_ms = HTTP_TIMEOUT_MS,
-        .buffer_size = 2048,
-        .buffer_size_tx = 512,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .event_handler = http_event,
-        .user_data = &ctx,
-        .disable_auto_redirect = false,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) {
-        free(ctx.buf);
-        snprintf(out->err, sizeof(out->err), "创建 HTTPS 客户端失败");
-        return ESP_ERR_NO_MEM;
-    }
-    esp_http_client_set_header(client, "X-Api-Token", srv->token);
-    esp_http_client_set_header(client, "Accept", "application/json");
-    esp_http_client_set_header(client, "User-Agent", "AI-Passport-Monitor/1.0");
+    esp_err_t err = ESP_FAIL;
+    int status = 0;
+    int elapsed_ms = 0;
+    for (int attempt = 0; attempt < HTTP_ATTEMPTS; attempt++) {
+        ctx.len = 0;
+        ctx.overflow = false;
 
-    int64_t started = esp_timer_get_time();
-    esp_err_t err = esp_http_client_perform(client);
-    int elapsed_ms = (int)((esp_timer_get_time() - started) / 1000);
-    int status = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+        esp_http_client_config_t cfg = {
+            .url = srv->url,
+            .method = HTTP_METHOD_GET,
+            .timeout_ms = HTTP_TIMEOUT_MS,
+            .buffer_size = 2048,
+            .buffer_size_tx = 512,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .event_handler = http_event,
+            .user_data = &ctx,
+            .disable_auto_redirect = false,
+        };
+        esp_http_client_handle_t client = esp_http_client_init(&cfg);
+        if (!client) {
+            free(ctx.buf);
+            snprintf(out->err, sizeof(out->err), "创建 HTTPS 客户端失败");
+            return ESP_ERR_NO_MEM;
+        }
+        esp_http_client_set_header(client, "X-Api-Token", srv->token);
+        esp_http_client_set_header(client, "Accept", "application/json");
+        esp_http_client_set_header(client, "User-Agent", "AI-Passport-Monitor/1.0");
+
+        int64_t started = esp_timer_get_time();
+        err = esp_http_client_perform(client);
+        elapsed_ms = (int)((esp_timer_get_time() - started) / 1000);
+        status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+
+        if (err == ESP_OK) break;
+        // 只重试网络层瞬时错误; 证书、参数错误重试也没用。
+        bool retryable = err == ESP_ERR_HTTP_EAGAIN || err == ESP_ERR_TIMEOUT ||
+                         err == ESP_ERR_HTTP_CONNECT || err == ESP_ERR_HTTP_CONNECTION_CLOSED;
+        if (!retryable) break;
+    }
 
     if (latency_ms) *latency_ms = elapsed_ms;
 

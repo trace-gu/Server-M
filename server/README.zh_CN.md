@@ -108,6 +108,7 @@ ESP-IDF 内置 CA 证书库校验证书，因此必须是公共 CA 签发的证�
   "uptime": 86400,
   "temp": 46.5,
   "docker_run": 7,
+  "docker_total": 8,
   "docker_bad": 1,
   "ssl_days": 42,
   "trend": {"step": 300, "cpu": [12, 15], "mem": [63, 64]}
@@ -121,7 +122,7 @@ ESP-IDF 内置 CA 证书库校验证书，因此必须是公共 CA 签发的证�
 | `net_rx`、`net_tx` | 采样窗口内的每秒字节数。 |
 | `uptime` | 开机秒数。 |
 | `temp` | 摄氏度，存在温度传感器或面板值时提供。 |
-| `docker_run`、`docker_bad` | 运行中与未运行的容器数，有 Docker 时提供。 |
+| `docker_run`、`docker_total`、`docker_bad` | 运行中、总数、异常（非 running）容器数，有 Docker 时提供。 |
 | `ssl_days` | `ssl_host` 证书剩余天数；未配置或不可达时为 `-1`。 |
 | `trend.step` | 每个趋势点的间隔秒数。 |
 | `trend.cpu`、`trend.mem` | 最多 288 个采样，按时间从旧到新。 |

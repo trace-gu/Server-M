@@ -66,7 +66,8 @@ typedef struct {
     int16_t temp_c_x10;      // 45.2C -> 452
     int16_t ssl_days;        // -1 未知
     int16_t docker_run;      // -1 未知
-    int16_t docker_bad;
+    int16_t docker_total;    // 运行中 + 已停止, -1 未知
+    int16_t docker_bad;      // 非 running 的容器数, -1 未知
     int8_t backup_state;     // -1 未知, 0 失败, 1 正常
     char panel[16];
     char err[48];

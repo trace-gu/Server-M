@@ -47,8 +47,9 @@ static QueueHandle_t s_input_queue;
 static TaskHandle_t s_app_task;
 static key_guard_t s_key_guard;
 static bool s_input_ready;
-static app_view_t s_view = APP_VIEW_HOME;
+static app_view_t s_view = APP_VIEW_LIST;
 static int s_sel;
+static int s_poll;          // 列表页轮转拉取的游标
 static int s_set_sel;
 static int s_wifi_sel;
 static app_server_status_t s_status[APP_MAX_SERVERS];
@@ -130,14 +131,21 @@ static void render_view(bool full)
             app_ui_portal_update(app_portal_elapsed_s(), app_wifi_ap_active());
         }
         break;
-    case APP_VIEW_HOME:
+    case APP_VIEW_LIST:
     default:
         if (full) {
-            app_ui_home_show(&s_ui_cfg, s_sel, status, &s_trend, s_latency_ms,
-                             &wifi, s_battery_soc);
+            app_ui_list_show(&s_ui_cfg, s_sel, s_status, &wifi, s_battery_soc);
         } else {
-            app_ui_home_update(&s_ui_cfg, s_sel, status, &s_trend, s_latency_ms,
+            app_ui_list_update(&s_ui_cfg, s_sel, s_status, &wifi, s_battery_soc);
+        }
+        break;
+    case APP_VIEW_DETAIL:
+        if (full) {
+            app_ui_detail_show(&s_ui_cfg, s_sel, status, &s_trend, s_latency_ms,
                                &wifi, s_battery_soc);
+        } else {
+            app_ui_detail_update(&s_ui_cfg, s_sel, status, &s_trend, s_latency_ms,
+                                 &wifi, s_battery_soc);
         }
         break;
     }
@@ -146,19 +154,53 @@ static void render_view(bool full)
 
 static void maybe_request_refresh(int64_t now)
 {
-    if (s_view != APP_VIEW_HOME || !s_screen_on) return;
+    if (!s_screen_on) return;
     if (app_net_busy()) return;
     if (s_ui_cfg.server_count == 0) return;
+
+    // 只有列表页和详情页需要数据:列表页整页轮转(一次请求一台),
+    // 详情页只拉当前这台;设置/Wi-Fi/配网页完全不发请求。
+    int target;
+    if (s_view == APP_VIEW_DETAIL) {
+        target = s_sel;
+    } else if (s_view == APP_VIEW_LIST) {
+        if (s_poll < 0 || s_poll >= s_ui_cfg.server_count) s_poll = 0;
+        target = s_poll;
+    } else {
+        return;
+    }
+
     uint32_t interval_ms = (uint32_t)s_ui_cfg.refresh_s * 1000u;
     if (s_last_start_ms != 0 && now - s_last_start_ms < (int64_t)interval_ms) return;
-    if (app_net_request(s_sel)) s_last_start_ms = now;
+    if (app_net_request(target)) {
+        s_last_start_ms = now;
+        if (s_view == APP_VIEW_LIST) {
+            s_poll = (s_poll + 1) % s_ui_cfg.server_count;
+        }
+    }
 }
 
-static void enter_home(void)
+static void enter_list(void)
 {
-    s_view = APP_VIEW_HOME;
+    s_view = APP_VIEW_LIST;
     s_last_input_ms = now_ms();
     app_net_cancel();
+    s_last_start_ms = 0;
+    s_poll = 0;
+    render_view(true);
+    maybe_request_refresh(now_ms());
+}
+
+static void enter_detail(int index)
+{
+    if (s_ui_cfg.server_count <= 0) return;
+    if (index < 0 || index >= s_ui_cfg.server_count) index = 0;
+    s_sel = index;
+    s_view = APP_VIEW_DETAIL;
+    s_last_input_ms = now_ms();
+    app_net_cancel();
+    memset(&s_trend, 0, sizeof(s_trend));
+    s_latency_ms = 0;
     s_last_start_ms = 0;
     render_view(true);
     maybe_request_refresh(now_ms());
@@ -205,13 +247,17 @@ static void switch_server(int delta)
 {
     if (s_ui_cfg.server_count <= 1) return;
     s_sel = app_selection_move(s_sel, s_ui_cfg.server_count, delta);
-    app_net_cancel();
-    memset(&s_trend, 0, sizeof(s_trend));
-    s_latency_ms = 0;
-    s_last_start_ms = 0;
     s_last_input_ms = now_ms();
-    render_view(true);
-    maybe_request_refresh(now_ms());
+    if (s_view == APP_VIEW_DETAIL) {
+        app_net_cancel();
+        memset(&s_trend, 0, sizeof(s_trend));
+        s_latency_ms = 0;
+        s_last_start_ms = 0;
+        render_view(true);
+        maybe_request_refresh(now_ms());
+    } else {
+        render_view(false);
+    }
 }
 
 static void cycle_refresh(void)
@@ -282,6 +328,17 @@ static void activate_wifi(int index)
     render_view(false);
 }
 
+static void screen_off(void)
+{
+    if (!s_screen_on) return;
+    s_screen_on = false;
+    bsp_display_backlight(0);
+    s_applied_brightness = 0;
+    app_net_cancel();
+    app_wifi_set_low_power(true);
+    ESP_LOGI(TAG, "熄屏，停止轮询");
+}
+
 static void wake_screen(void)
 {
     s_screen_on = true;
@@ -297,7 +354,7 @@ static void handle_back(void)
 {
     switch (s_view) {
     case APP_VIEW_SETTINGS:
-        enter_home();
+        enter_list();
         break;
     case APP_VIEW_WIFI:
         enter_settings();
@@ -305,7 +362,10 @@ static void handle_back(void)
     case APP_VIEW_PORTAL:
         exit_portal();
         break;
-    case APP_VIEW_HOME:
+    case APP_VIEW_DETAIL:
+        enter_list();
+        break;
+    case APP_VIEW_LIST:
     default:
         enter_settings();
         break;
@@ -317,7 +377,13 @@ static void handle_click(bsp_btn_t btn)
     app_config_snapshot(&s_ui_cfg);
 
     switch (s_view) {
-    case APP_VIEW_HOME:
+    case APP_VIEW_LIST:
+        if (btn == BSP_BTN_UP) switch_server(-1);
+        else if (btn == BSP_BTN_DOWN) switch_server(1);
+        else if (btn == BSP_BTN_OK && s_ui_cfg.server_count > 0) enter_detail(s_sel);
+        break;
+
+    case APP_VIEW_DETAIL:
         if (btn == BSP_BTN_UP) switch_server(-1);
         else if (btn == BSP_BTN_DOWN) switch_server(1);
         else if (btn == BSP_BTN_OK) {
@@ -343,7 +409,7 @@ static void handle_click(bsp_btn_t btn)
             case 3: cycle_screen_off(); break;
             case 4: start_portal(); break;
             case 5: break;
-            default: enter_home(); break;
+            default: enter_list(); break;
             }
         }
         break;
@@ -386,9 +452,12 @@ static void handle_input(const input_event_t *input)
     }
 
     if (input->event == BSP_BTN_LONG) {
+        s_last_input_ms = now;
         if (input->btn == BSP_BTN_OK) {
-            s_last_input_ms = now;
             handle_back();
+        } else if (input->btn == BSP_BTN_UP) {
+            // 硬件电源键直连供电,固件读不到;用长按上键代替手动关屏。
+            if (s_view == APP_VIEW_LIST || s_view == APP_VIEW_DETAIL) screen_off();
         }
         return;
     }
@@ -408,6 +477,7 @@ static void merge_stale(app_server_status_t *merged, const app_server_status_t *
     if (merged->temp_c_x10 < 0) merged->temp_c_x10 = previous->temp_c_x10;
     if (merged->ssl_days < 0) merged->ssl_days = previous->ssl_days;
     if (merged->docker_run < 0) merged->docker_run = previous->docker_run;
+    if (merged->docker_total < 0) merged->docker_total = previous->docker_total;
     if (merged->docker_bad < 0) merged->docker_bad = previous->docker_bad;
     if (merged->backup_state < 0) merged->backup_state = previous->backup_state;
     if (merged->net_rx_bps == 0) merged->net_rx_bps = previous->net_rx_bps;
@@ -431,19 +501,16 @@ static void handle_result(const app_fetch_result_t *result)
         s_trend = result->trend;
     }
 
-    if (s_view == APP_VIEW_HOME && s_screen_on) render_view(false);
+    if (s_screen_on && (s_view == APP_VIEW_LIST || s_view == APP_VIEW_DETAIL)) {
+        render_view(false);
+    }
 }
 
 static void maybe_screen_off(int64_t now)
 {
     if (!s_screen_on || s_ui_cfg.screen_off_s == 0) return;
     if (now - s_last_input_ms < (int64_t)s_ui_cfg.screen_off_s * 1000) return;
-    s_screen_on = false;
-    bsp_display_backlight(0);
-    s_applied_brightness = 0;
-    app_net_cancel();
-    app_wifi_set_low_power(true);
-    ESP_LOGI(TAG, "自动熄屏，停止轮询");
+    screen_off();
 }
 
 static void app_task(void *arg)

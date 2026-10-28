@@ -36,6 +36,8 @@ static int s_rssi;
 static int s_attempt;
 static int s_fail_count;
 static bool s_sntp_started;
+// 最近一次成功连接时所在信道;重连时直接指定,省掉一次全信道扫描。
+static uint8_t s_channels[APP_MAX_WIFI];
 
 static void lock_info(void)
 {
@@ -97,6 +99,12 @@ static bool wifi_config_for(int index, wifi_config_t *out)
         app_utf8_truncate((char *)out->sta.password, sizeof(out->sta.password),
                           cfg->wifi[index].pass);
         out->sta.threshold.authmode = out->sta.password[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+        // 只扫描到目标 SSID 就停,并且允许较弱的信号接入;
+        // 指定上次成功的信道可以跳过整轮扫描,重连从十几秒降到 1 秒内。
+        out->sta.scan_method = WIFI_FAST_SCAN;
+        out->sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+        out->sta.threshold.rssi = -90;
+        out->sta.channel = s_channels[index];
         out->sta.pmf_cfg.capable = true;
         out->sta.pmf_cfg.required = false;
         set_ssid(cfg->wifi[index].ssid);
@@ -156,9 +164,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         case WIFI_EVENT_STA_START:
             if (saved_wifi_count() > 0) connect_attempt();
             break;
-        case WIFI_EVENT_STA_CONNECTED:
+        case WIFI_EVENT_STA_CONNECTED: {
+            uint8_t primary = 0;
+            wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+            if (esp_wifi_get_channel(&primary, &second) == ESP_OK && primary &&
+                s_attempt >= 0 && s_attempt < APP_MAX_WIFI) {
+                s_channels[s_attempt] = primary;
+            }
             set_state(APP_WIFI_CONNECTING);
             break;
+        }
         case WIFI_EVENT_STA_DISCONNECTED: {
             const wifi_event_sta_disconnected_t *ev = (const wifi_event_sta_disconnected_t *)data;
             lock_info();
@@ -166,15 +181,21 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             s_rssi = 0;
             unlock_info();
             s_fail_count++;
-            if (s_fail_count >= 3 && saved_wifi_count() > 1) {
+            int delay_ms = AP_RETRY_MS;
+            if (s_fail_count >= 2 && saved_wifi_count() > 1) {
                 s_attempt = (s_attempt + 1) % saved_wifi_count();
                 s_fail_count = 0;
                 ESP_LOGW(TAG, "连续连接失败,尝试下一个已保存网络");
+                delay_ms = 800;
+            } else if (s_fail_count >= 4) {
+                // 一直连不上就放慢重试,避免空转耗电。
+                delay_ms = 10000;
             }
-            set_state(APP_WIFI_CONNECTING);
-            ESP_LOGW(TAG, "Wi-Fi 断开 (reason=%d), %d 秒后重试", ev ? ev->reason : -1,
-                     AP_RETRY_MS / 1000);
-            schedule_retry(AP_RETRY_MS);
+            // 断线是"未连接",不是"连接中";否则界面会一直显示连接中。
+            set_state(APP_WIFI_FAILED);
+            ESP_LOGW(TAG, "Wi-Fi 断开 (reason=%d), %d 毫秒后重试", ev ? ev->reason : -1,
+                     delay_ms);
+            schedule_retry(delay_ms);
             break;
         }
         default:
@@ -223,8 +244,15 @@ esp_err_t app_wifi_init(void)
 
     esp_err_t e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
     if (e != ESP_OK) ESP_LOGW(TAG, "set_storage: %s", esp_err_to_name(e));
+    // 启动时从上次选中的网络开始连,而不是永远从第 0 个开始。
+    app_config_lock();
+    s_attempt = app_config_get()->active_wifi;
+    app_config_unlock();
+    if (s_attempt < 0) s_attempt = 0;
     e = esp_wifi_set_mode(WIFI_MODE_STA);
     if (e != ESP_OK) return e;
+    e = esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW_HT20);
+    if (e != ESP_OK) ESP_LOGW(TAG, "set_bandwidth: %s", esp_err_to_name(e));
     e = esp_wifi_start();
     if (e != ESP_OK) return e;
     s_wifi_started = true;

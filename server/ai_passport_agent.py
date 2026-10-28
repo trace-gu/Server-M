@@ -549,13 +549,17 @@ def fetch_baota(cfg: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 可选采集：Docker / 证书到期
 # ---------------------------------------------------------------------------
-def docker_counts(cache: dict, lock: threading.Lock) -> tuple[int, int]:
+def docker_counts(cache: dict, lock: threading.Lock) -> tuple[int, int, int]:
+    """返回 (运行中数量, 容器总数, 异常数量)。
+
+    设备列表/详情显示 ``运行中/总数``;异常数量只用于诊断。
+    """
     now = time.time()
     with lock:
         if cache.get("ts") and now - cache["ts"] < 30:
-            return cache.get("run", -1), cache.get("bad", -1)
+            return cache.get("run", -1), cache.get("total", -1), cache.get("bad", -1)
     binary = shutil.which("docker")
-    run = bad = -1
+    run = total = bad = -1
     if binary:
         try:
             out = subprocess.run(
@@ -564,14 +568,15 @@ def docker_counts(cache: dict, lock: threading.Lock) -> tuple[int, int]:
             )
             if out.returncode == 0:
                 states = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+                total = len(states)
                 run = sum(1 for state in states if state == "running")
                 bad = sum(1 for state in states
                           if state in ("exited", "dead", "restarting", "paused", "created"))
         except (OSError, subprocess.SubprocessError):
             pass
     with lock:
-        cache.update({"ts": now, "run": run, "bad": bad})
-    return run, bad
+        cache.update({"ts": now, "run": run, "total": total, "bad": bad})
+    return run, total, bad
 
 
 def ssl_days_left(host: str, cache: dict, lock: threading.Lock) -> int:
@@ -655,9 +660,10 @@ class Agent:
         else:
             payload["panel"] = "本地"
 
-        run, bad = docker_counts(self._docker_cache, self._cache_lock)
+        run, total, bad = docker_counts(self._docker_cache, self._cache_lock)
         if run >= 0:
             payload["docker_run"] = run
+            payload["docker_total"] = total
             payload["docker_bad"] = bad
         days = ssl_days_left(str(self.cfg.get("ssl_host") or ""),
                              self._ssl_cache, self._cache_lock)
