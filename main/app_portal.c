@@ -145,6 +145,37 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON *settings = cJSON_AddObjectToObject(root, "settings");
     cJSON_AddNumberToObject(settings, "refresh_s", cfg.refresh_s);
     cJSON_AddNumberToObject(settings, "screen_off_s", cfg.screen_off_s);
+    cJSON_AddNumberToObject(settings, "brightness", cfg.brightness);
+    return send_json(req, root);
+}
+
+#define SCAN_MAX 20
+
+static esp_err_t scan_get(httpd_req_t *req)
+{
+    app_wifi_scan_item_t *items = calloc(SCAN_MAX, sizeof(*items));
+    if (!items) return send_error(req, "内存不足");
+    int count = app_wifi_scan(items, SCAN_MAX);
+    if (count < 0) {
+        free(items);
+        return send_error(req, "扫描失败，请稍后重试");
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        free(items);
+        return httpd_resp_send_500(req);
+    }
+    cJSON_AddBoolToObject(root, "ok", true);
+    cJSON *arr = cJSON_AddArrayToObject(root, "networks");
+    for (int i = 0; i < count; i++) {
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddStringToObject(item, "ssid", items[i].ssid);
+        cJSON_AddNumberToObject(item, "rssi", items[i].rssi);
+        cJSON_AddBoolToObject(item, "secure", items[i].secure);
+        cJSON_AddItemToArray(arr, item);
+    }
+    free(items);
     return send_json(req, root);
 }
 
@@ -256,11 +287,14 @@ static esp_err_t settings_post(httpd_req_t *req)
     app_config_snapshot(&cfg);
     int refresh = json_int(root, "refresh_s", cfg.refresh_s);
     int screen_off = json_int(root, "screen_off_s", cfg.screen_off_s);
+    int brightness = json_int(root, "brightness", cfg.brightness);
     cJSON_Delete(root);
 
     cfg.refresh_s = (uint16_t)(refresh < APP_REFRESH_MIN_S ? APP_REFRESH_MIN_S : refresh);
     cfg.refresh_s = (uint16_t)(cfg.refresh_s > APP_REFRESH_MAX_S ? APP_REFRESH_MAX_S : cfg.refresh_s);
     cfg.screen_off_s = screen_off < 0 ? 0 : (uint16_t)(screen_off > 3600 ? 3600 : screen_off);
+    cfg.brightness = (uint8_t)(brightness < APP_BRIGHTNESS_MIN ? APP_BRIGHTNESS_MIN : brightness);
+    cfg.brightness = (uint8_t)(cfg.brightness > APP_BRIGHTNESS_MAX ? APP_BRIGHTNESS_MAX : cfg.brightness);
     if (app_config_apply(&cfg) != ESP_OK) return send_error(req, "保存配置失败");
     atomic_store(&s_config_changed, true);
     return send_ok(req);
@@ -313,6 +347,7 @@ static esp_err_t exit_post(httpd_req_t *req)
 static const httpd_uri_t URIS[] = {
     { .uri = "/", .method = HTTP_GET, .handler = root_get },
     { .uri = "/api/config", .method = HTTP_GET, .handler = config_get },
+    { .uri = "/api/scan", .method = HTTP_GET, .handler = scan_get },
     { .uri = "/api/wifi", .method = HTTP_POST, .handler = wifi_post },
     { .uri = "/api/server", .method = HTTP_POST, .handler = server_post },
     { .uri = "/api/settings", .method = HTTP_POST, .handler = settings_post },

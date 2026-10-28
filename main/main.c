@@ -37,8 +37,6 @@ static const char *TAG = "passport";
 #define TASK_PERIOD_MS 50
 #define UI_TICK_MS 1000
 #define BATTERY_PERIOD_MS 30000
-// 背光是整机最大的一笔固定功耗，65% 亮度观感几乎无损。
-#define SCREEN_BRIGHTNESS 65
 
 typedef struct {
     bsp_btn_t btn;
@@ -61,10 +59,13 @@ static bool s_screen_on = true;
 static bool s_wake_swallow;
 static int64_t s_last_input_ms;
 static int64_t s_last_start_ms;
+static uint8_t s_applied_brightness;
 static app_config_t s_ui_cfg;
 
 static const uint16_t REFRESH_STEPS[] = {5, 10, 15, 30, 60, 120, 300};
 static const uint16_t SCREEN_OFF_STEPS[] = {0, 30, 60, 120, 300};
+// 背光是整机最大的一笔固定功耗，默认 65% 观感几乎无损。
+static const uint8_t BRIGHTNESS_STEPS[] = {30, 50, 65, 80, 100};
 
 static int64_t now_ms(void)
 {
@@ -81,9 +82,23 @@ static void on_key(bsp_btn_t btn, bsp_btn_ev_t ev, void *user)
     (void)xQueueSend(s_input_queue, &input, 0);
 }
 
+static void sync_brightness(void)
+{
+    if (!s_screen_on) return;
+    uint8_t brightness = s_ui_cfg.brightness;
+    if (brightness < APP_BRIGHTNESS_MIN || brightness > APP_BRIGHTNESS_MAX) {
+        brightness = APP_DEFAULT_BRIGHTNESS;
+    }
+    if (brightness == s_applied_brightness) return;
+    s_applied_brightness = brightness;
+    bsp_display_backlight(brightness);
+}
+
 static void render_view(bool full)
 {
     app_config_snapshot(&s_ui_cfg);
+    // 设置页或手机网页改了亮度后，下一次渲染就会生效。
+    sync_brightness();
 
     app_wifi_info_t wifi;
     app_wifi_get_info(&wifi);
@@ -217,6 +232,24 @@ static void cycle_refresh(void)
     render_view(false);
 }
 
+static void cycle_brightness(void)
+{
+    app_config_snapshot(&s_ui_cfg);
+    size_t count = sizeof(BRIGHTNESS_STEPS) / sizeof(BRIGHTNESS_STEPS[0]);
+    size_t index = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (BRIGHTNESS_STEPS[i] == s_ui_cfg.brightness) {
+            index = i;
+            break;
+        }
+    }
+    s_ui_cfg.brightness = BRIGHTNESS_STEPS[(index + 1) % count];
+    if (app_config_apply(&s_ui_cfg) != ESP_OK) {
+        ESP_LOGW(TAG, "保存屏幕亮度失败");
+    }
+    render_view(false);
+}
+
 static void cycle_screen_off(void)
 {
     size_t count = sizeof(SCREEN_OFF_STEPS) / sizeof(SCREEN_OFF_STEPS[0]);
@@ -253,7 +286,7 @@ static void wake_screen(void)
 {
     s_screen_on = true;
     s_last_input_ms = now_ms();
-    bsp_display_backlight(SCREEN_BRIGHTNESS);
+    s_applied_brightness = 0;   // 让 render_view 重新套用配置里的亮度
     app_wifi_set_low_power(false);
     s_last_start_ms = 0;
     render_view(false);
@@ -300,15 +333,16 @@ static void handle_click(bsp_btn_t btn)
             if (s_set_sel > 0) s_set_sel--;
             render_view(false);
         } else if (btn == BSP_BTN_DOWN) {
-            if (s_set_sel < 5) s_set_sel++;
+            if (s_set_sel < 6) s_set_sel++;
             render_view(false);
         } else if (btn == BSP_BTN_OK) {
             switch (s_set_sel) {
             case 0: enter_wifi(); break;
-            case 1: cycle_refresh(); break;
-            case 2: cycle_screen_off(); break;
-            case 3: start_portal(); break;
-            case 4: break;
+            case 1: cycle_brightness(); break;
+            case 2: cycle_refresh(); break;
+            case 3: cycle_screen_off(); break;
+            case 4: start_portal(); break;
+            case 5: break;
             default: enter_home(); break;
             }
         }
@@ -406,6 +440,7 @@ static void maybe_screen_off(int64_t now)
     if (now - s_last_input_ms < (int64_t)s_ui_cfg.screen_off_s * 1000) return;
     s_screen_on = false;
     bsp_display_backlight(0);
+    s_applied_brightness = 0;
     app_net_cancel();
     app_wifi_set_low_power(true);
     ESP_LOGI(TAG, "自动熄屏，停止轮询");
@@ -486,7 +521,7 @@ void app_main(void)
         ESP_LOGE(TAG, "显示或 LVGL 初始化失败，应用无法继续");
         return;
     }
-    bsp_display_backlight(SCREEN_BRIGHTNESS);
+    bsp_display_backlight(APP_DEFAULT_BRIGHTNESS);
 
     if (app_config_init() != ESP_OK) {
         ESP_LOGW(TAG, "配置初始化异常，使用内存默认值");

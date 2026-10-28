@@ -67,7 +67,9 @@ esp_err_t app_config_init(void)
     size_t size = sizeof(*loaded);
     err = nvs_get_blob(handle, NVS_KEY, loaded, &size);
     bool changed = false;
-    if (err == ESP_OK && size == sizeof(*loaded) && loaded->version == 1) {
+    // 兼容旧版本 blob:brightness 追加在最末,旧配置长度正好到它的偏移量。
+    if (err == ESP_OK && size >= offsetof(app_config_t, brightness) &&
+        size <= sizeof(*loaded) && loaded->version == 1) {
         s_cfg = *loaded;
         app_config_sanitize(&s_cfg);
         changed = memcmp(loaded, &s_cfg, sizeof(s_cfg)) != 0;

@@ -155,6 +155,9 @@ void app_config_sanitize(app_config_t *cfg)
         cfg->refresh_s = APP_DEFAULT_REFRESH_S;
     }
     if (cfg->screen_off_s > 3600) cfg->screen_off_s = APP_DEFAULT_SCREEN_OFF_S;
+    if (cfg->brightness < APP_BRIGHTNESS_MIN || cfg->brightness > APP_BRIGHTNESS_MAX) {
+        cfg->brightness = APP_DEFAULT_BRIGHTNESS;
+    }
 
     if (cfg->server_count > APP_MAX_SERVERS) cfg->server_count = APP_MAX_SERVERS;
     uint8_t keep = 0;

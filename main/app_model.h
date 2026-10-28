@@ -21,6 +21,9 @@
 #define APP_REFRESH_MAX_S 300
 #define APP_DEFAULT_REFRESH_S 10
 #define APP_DEFAULT_SCREEN_OFF_S 60
+#define APP_BRIGHTNESS_MIN 10
+#define APP_BRIGHTNESS_MAX 100
+#define APP_DEFAULT_BRIGHTNESS 65
 
 typedef struct {
     char name[APP_NAME_MAX + 1];
@@ -42,6 +45,8 @@ typedef struct {
     uint16_t screen_off_s;   // 0 = 常亮
     app_server_cfg_t servers[APP_MAX_SERVERS];
     app_wifi_cfg_t wifi[APP_MAX_WIFI];
+    // 追加在末尾:旧固件的 NVS blob 更短,读入后本字段为 0,由 sanitize 补默认值。
+    uint8_t brightness;      // 背光百分比 10..100
 } app_config_t;
 
 // 一台服务器最近一次拉取到的状态。0 值代表未知。

@@ -17,6 +17,11 @@ h2{font-size:15px;margin:0 0 12px;color:var(--accent)}
 label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
 input,select{width:100%;background:#0e1726;border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:10px 12px;font-size:14px}
 input:focus,select:focus{outline:none;border-color:var(--accent)}
+input[type=range]{padding:0;background:transparent;border:0;-webkit-appearance:none;height:28px}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:#1d2b45}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;margin-top:-7px;border-radius:50%;background:var(--accent)}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:#1d2b45}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:0;border-radius:50%;background:var(--accent)}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .row>*{flex:1;min-width:120px}
 button{background:var(--accent);color:#06202a;border:0;border-radius:9px;padding:10px 14px;font-weight:600;font-size:14px;cursor:pointer}
@@ -53,6 +58,10 @@ li .grow{flex:1;min-width:0}
 <div class="card">
   <h2>Wi-Fi 网络（可保存多个）</h2>
   <ul id="wifilist"></ul>
+  <div class="row" style="margin-top:10px">
+    <button class="ghost" id="scanbtn" onclick="scanWifi()">扫描附近网络</button>
+  </div>
+  <ul id="scanlist"></ul>
   <div class="row" style="margin-top:10px">
     <input id="wssid" placeholder="Wi-Fi 名称 (SSID)" autocomplete="off">
     <input id="wpass" type="password" placeholder="密码（开放网络留空）" autocomplete="off">
@@ -101,6 +110,11 @@ li .grow{flex:1;min-width:0}
       </select>
     </div>
   </div>
+  <div style="margin-top:10px">
+    <label>屏幕亮度 <span id="bval">65%</span></label>
+    <input type="range" id="brightness" min="10" max="100" step="5" value="65"
+           oninput="document.getElementById('bval').textContent=this.value+'%'">
+  </div>
   <div class="row" style="margin-top:12px">
     <button onclick="saveSettings()">保存设置</button>
     <button class="ghost" onclick="exitPortal()">退出配网并返回监控</button>
@@ -134,6 +148,27 @@ async function load(){
   renderWifi();renderServers();
   document.getElementById('refresh').value=String(cfg.settings.refresh_s);
   document.getElementById('screenoff').value=String(cfg.settings.screen_off_s);
+  document.getElementById('brightness').value=String(cfg.settings.brightness||65);
+  document.getElementById('bval').textContent=(cfg.settings.brightness||65)+'%';
+}
+async function scanWifi(){
+  const btn=document.getElementById('scanbtn');
+  const ul=document.getElementById('scanlist');
+  btn.disabled=true;btn.textContent='扫描中...';ul.innerHTML='';
+  try{
+    const r=await fetch('/api/scan',{cache:'no-store'});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error||('HTTP '+r.status));
+    if(!j.networks.length){ul.innerHTML='<li><span class="sub">没有发现可见网络</span></li>';return;}
+    j.networks.forEach(n=>{
+      const li=document.createElement('li');
+      li.innerHTML='<div class="grow"><div class="name">'+esc(n.ssid)+'</div><div class="sub">'+(n.secure?'加密':'开放')+' · 信号 '+n.rssi+' dBm</div></div>';
+      const use=document.createElement('button');use.className='ghost small';use.textContent='填入';
+      use.onclick=()=>{document.getElementById('wssid').value=n.ssid;document.getElementById('wpass').focus();};
+      li.appendChild(use);ul.appendChild(li);
+    });
+  }catch(e){msg('wmsg','扫描失败：'+e.message,false);}
+  finally{btn.disabled=false;btn.textContent='扫描附近网络';}
 }
 function renderWifi(){
   const ul=document.getElementById('wifilist');ul.innerHTML='';
@@ -195,7 +230,8 @@ async function testServer(i){
 async function saveSettings(){
   const refresh_s=parseInt(document.getElementById('refresh').value,10);
   const screen_off_s=parseInt(document.getElementById('screenoff').value,10);
-  try{await api('/api/settings',{refresh_s,screen_off_s});msg('gmsg','设置已保存',true);await load();}catch(e){msg('gmsg',e.message,false);}
+  const brightness=parseInt(document.getElementById('brightness').value,10);
+  try{await api('/api/settings',{refresh_s,screen_off_s,brightness});msg('gmsg','设置已保存',true);await load();}catch(e){msg('gmsg',e.message,false);}
 }
 async function exitPortal(){
   try{await api('/api/exit',{});msg('gmsg','已退出配网，设备正在重连 Wi-Fi',true);}catch(e){msg('gmsg',e.message,false);}

@@ -15,6 +15,7 @@
 #include "freertos/semphr.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "app_wifi";
@@ -395,4 +396,69 @@ void app_wifi_note_config_changed(void)
     app_config_unlock();
     s_fail_count = 0;
     schedule_retry(300);
+}
+
+int app_wifi_scan(app_wifi_scan_item_t *out, int max)
+{
+    if (!s_wifi_started || !out || max <= 0) return -1;
+
+    const uint16_t capacity = 32;
+    // 先分配结果缓冲:扫描一旦开始,就必须取走结果,否则驱动内部列表会滞留。
+    wifi_ap_record_t *records = calloc(capacity, sizeof(*records));
+    if (!records) return -1;
+
+    // 配网热点开着时是 APSTA,扫描期间热点会短暂时隙复用,手机页面会稍慢。
+    wifi_scan_config_t scan = {0};
+    scan.show_hidden = false;
+    esp_err_t err = esp_wifi_scan_start(&scan, true);
+    if (err != ESP_OK) {
+        free(records);
+        ESP_LOGW(TAG, "扫描失败: %s", esp_err_to_name(err));
+        return -1;
+    }
+
+    uint16_t got = capacity;
+    // 无论结果多少都必须调用一次,驱动才会释放内部扫描结果。
+    err = esp_wifi_scan_get_ap_records(&got, records);
+    if (err != ESP_OK) {
+        free(records);
+        ESP_LOGW(TAG, "读取扫描结果失败: %s", esp_err_to_name(err));
+        return -1;
+    }
+
+    int count = 0;
+    for (uint16_t i = 0; i < got; i++) {
+        const char *ssid = (const char *)records[i].ssid;
+        if (ssid[0] == '\0') continue;
+        int existing = -1;
+        for (int j = 0; j < count; j++) {
+            if (strcmp(out[j].ssid, ssid) == 0) {
+                existing = j;
+                break;
+            }
+        }
+        if (existing >= 0) {
+            if (records[i].rssi > out[existing].rssi) out[existing].rssi = records[i].rssi;
+            continue;
+        }
+        if (count >= max) continue;
+        app_utf8_truncate(out[count].ssid, sizeof(out[count].ssid), ssid);
+        out[count].rssi = records[i].rssi;
+        out[count].secure = records[i].authmode != WIFI_AUTH_OPEN;
+        count++;
+    }
+    free(records);
+
+    // 强信号在前,手机端列表不用自己排。
+    for (int i = 1; i < count; i++) {
+        app_wifi_scan_item_t item = out[i];
+        int j = i - 1;
+        while (j >= 0 && out[j].rssi < item.rssi) {
+            out[j + 1] = out[j];
+            j--;
+        }
+        out[j + 1] = item;
+    }
+    ESP_LOGI(TAG, "扫描完成,发现 %d 个网络", count);
+    return count;
 }

@@ -120,6 +120,18 @@ static void test_config_sanitize(void)
     CHECK(cfg.active_wifi == 0);
     CHECK(cfg.refresh_s == APP_DEFAULT_REFRESH_S);
     CHECK(cfg.screen_off_s == APP_DEFAULT_SCREEN_OFF_S);
+    // 旧配置没有 brightness 字段(读到 0),必须补成默认值。
+    CHECK(cfg.brightness == APP_DEFAULT_BRIGHTNESS);
+
+    cfg.brightness = 40;
+    app_config_sanitize(&cfg);
+    CHECK(cfg.brightness == 40);
+    cfg.brightness = 200;
+    app_config_sanitize(&cfg);
+    CHECK(cfg.brightness == APP_DEFAULT_BRIGHTNESS);
+    cfg.brightness = 5;
+    app_config_sanitize(&cfg);
+    CHECK(cfg.brightness == APP_DEFAULT_BRIGHTNESS);
 }
 
 static void test_wifi(void)

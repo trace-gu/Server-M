@@ -62,8 +62,8 @@ static int64_t s_chart_fetched_ms;
 static int s_chart_index = -1;
 
 static lv_obj_t *s_settings;
-static lv_obj_t *s_set_row[6];
-static lv_obj_t *s_set_val[6];
+static lv_obj_t *s_set_row[7];
+static lv_obj_t *s_set_val[7];
 
 static lv_obj_t *s_wifi;
 static lv_obj_t *s_wifi_state;
@@ -76,8 +76,9 @@ static lv_obj_t *s_portal_ssid;
 static lv_obj_t *s_portal_pass;
 static lv_obj_t *s_portal_elapsed;
 
-static const char *const SET_LABELS[6] = {
+static const char *const SET_LABELS[7] = {
     "Wi-Fi 网络",
+    "屏幕亮度",
     "刷新间隔",
     "自动熄屏",
     "手机配网",
@@ -236,7 +237,7 @@ esp_err_t app_ui_init(void)
         "还没有服务器长按确定进入设置用手机配网添加未配置未连接连接中已连接已保存正在常亮开启"
         "刷新间隔自动熄屏设备信息返回主界面网络热点名称密码浏览器打开已连接热点后按网页提示配置"
         "和都可上下切换请先在拉取无法面板刚刚秒前分前时前今天连接失败"
-        "使命内状尚退获取";
+        "使命内状尚退获取屏幕亮度";
     font_check_text(&app_font_16, "app_font_16", probe);
     font_check_text(&app_font_20, "app_font_20", probe);
     return ESP_OK;
@@ -570,10 +571,11 @@ static lv_obj_t *settings_build(const app_config_t *cfg, const app_wifi_info_t *
     (void)battery_soc;
     lv_obj_t *scr = screen_create();
     header_add(scr, "设置", "长按返回");
-    for (int i = 0; i < 6; i++) {
-        s_set_row[i] = panel_create(scr, 10, 50 + i * 40, 220, 34, C_CARD);
-        label_create(s_set_row[i], SET_LABELS[i], &app_font_16, C_INK, 12, 7, 118);
-        s_set_val[i] = label_create(s_set_row[i], "", &app_font_16, C_MUTED, 128, 7, 78);
+    // 7 行必须压缩行距:40px 间距会超出 240px 屏幕。
+    for (int i = 0; i < 7; i++) {
+        s_set_row[i] = panel_create(scr, 10, 42 + i * 28, 220, 26, C_CARD);
+        label_create(s_set_row[i], SET_LABELS[i], &app_font_16, C_INK, 12, 3, 118);
+        s_set_val[i] = label_create(s_set_row[i], "", &app_font_16, C_MUTED, 128, 3, 78);
         text_right(s_set_val[i]);
     }
     return scr;
@@ -583,7 +585,7 @@ static void settings_apply(const app_config_t *cfg, const app_wifi_info_t *wifi,
                            int selected, int battery_soc)
 {
     if (!s_settings) return;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 7; i++) {
         bool sel = i == selected;
         lv_obj_set_style_bg_color(s_set_row[i], lv_color_hex(sel ? C_CARD_SEL : C_CARD), 0);
         lv_obj_set_style_border_width(s_set_row[i], sel ? 2 : 0, 0);
@@ -595,18 +597,20 @@ static void settings_apply(const app_config_t *cfg, const app_wifi_info_t *wifi,
     if (wifi && wifi->configured) text_set(s_set_val[0], wifi_state_cn(wifi));
     else text_set(s_set_val[0], "未配置");
 
-    snprintf(buf, sizeof(buf), "%u 秒", (unsigned)cfg->refresh_s);
+    snprintf(buf, sizeof(buf), "%u%%", (unsigned)cfg->brightness);
     text_set(s_set_val[1], buf);
-    if (cfg->screen_off_s == 0) text_set(s_set_val[2], "常亮");
+    snprintf(buf, sizeof(buf), "%u 秒", (unsigned)cfg->refresh_s);
+    text_set(s_set_val[2], buf);
+    if (cfg->screen_off_s == 0) text_set(s_set_val[3], "常亮");
     else {
         snprintf(buf, sizeof(buf), "%u 秒", (unsigned)cfg->screen_off_s);
-        text_set(s_set_val[2], buf);
+        text_set(s_set_val[3], buf);
     }
-    text_set(s_set_val[3], "开启");
+    text_set(s_set_val[4], "开启");
     if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
     else snprintf(buf, sizeof(buf), "电量 --");
-    text_set(s_set_val[4], buf);
-    text_set(s_set_val[5], "");
+    text_set(s_set_val[5], buf);
+    text_set(s_set_val[6], "");
 }
 
 void app_ui_settings_show(const app_config_t *cfg, const app_wifi_info_t *wifi,
