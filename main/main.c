@@ -49,7 +49,6 @@ static key_guard_t s_key_guard;
 static bool s_input_ready;
 static app_view_t s_view = APP_VIEW_LIST;
 static int s_sel;
-static int s_poll;          // 列表页轮转拉取的游标
 static int s_set_sel;
 static int s_wifi_sel;
 static app_server_status_t s_status[APP_MAX_SERVERS];
@@ -59,14 +58,18 @@ static int s_battery_soc = -1;
 static bool s_screen_on = true;
 static bool s_wake_swallow;
 static int64_t s_last_input_ms;
-static int64_t s_last_start_ms;
+static int64_t s_attempt_ms[APP_MAX_SERVERS];   // 每台上一次发起请求的时间
+static bool s_force_refresh;
 static uint8_t s_applied_brightness;
 static app_config_t s_ui_cfg;
 
-static const uint16_t REFRESH_STEPS[] = {5, 10, 15, 30, 60, 120, 300};
+// 列表一屏显示 4 台，轮询只覆盖这 4 台，顺序与 app_ui 的滚动窗口一致。
+#define APP_LIST_ROWS 4
+
+static const uint16_t REFRESH_STEPS[] = {1, 3, 5, 10, 15, 30, 60, 120, 300};
 static const uint16_t SCREEN_OFF_STEPS[] = {0, 30, 60, 120, 300};
 // 背光是整机最大的一笔固定功耗，默认 65% 观感几乎无损。
-static const uint8_t BRIGHTNESS_STEPS[] = {30, 50, 65, 80, 100};
+static const uint8_t BRIGHTNESS_STEPS[] = {10, 20, 30, 50, 65, 80, 100};
 
 static int64_t now_ms(void)
 {
@@ -152,32 +155,62 @@ static void render_view(bool full)
     bsp_lvgl_unlock();
 }
 
+// 与 app_ui 的滚动窗口一致：选中项尽量保持在第二行，便于上下各看一眼。
+static int list_window_start(int count, int rows)
+{
+    int win = s_sel - 1;
+    if (win > count - rows) win = count - rows;
+    if (win < 0) win = 0;
+    return win;
+}
+
 static void maybe_request_refresh(int64_t now)
 {
     if (!s_screen_on) return;
     if (app_net_busy()) return;
-    if (s_ui_cfg.server_count == 0) return;
+    int count = s_ui_cfg.server_count;
+    if (count == 0) return;
 
-    // 只有列表页和详情页需要数据:列表页整页轮转(一次请求一台),
+    // 只有列表页和详情页需要数据:列表页按“屏幕上的 4 行”逐台补齐,
     // 详情页只拉当前这台;设置/Wi-Fi/配网页完全不发请求。
-    int target;
+    // 是否该拉取按“每台自己的上次尝试时间”判断,这样列表一轮正好等于刷新间隔,
+    // 不会被全局计时器拖成 N 倍间隔。
+    const int64_t interval_ms = (int64_t)s_ui_cfg.refresh_s * 1000;
+
+    int target = -1;
+    int64_t oldest = 0;
     if (s_view == APP_VIEW_DETAIL) {
-        target = s_sel;
+        int64_t last = s_attempt_ms[s_sel];
+        if (s_force_refresh || last == 0 || now - last >= interval_ms) {
+            target = s_sel;
+            oldest = last;
+        }
     } else if (s_view == APP_VIEW_LIST) {
-        if (s_poll < 0 || s_poll >= s_ui_cfg.server_count) s_poll = 0;
-        target = s_poll;
+        int rows = count < APP_LIST_ROWS ? count : APP_LIST_ROWS;
+        int start = list_window_start(count, rows);
+        for (int i = 0; i < rows; i++) {
+            int index = start + i;
+            int64_t last = s_attempt_ms[index];
+            if (!s_force_refresh && last != 0 && now - last < interval_ms) continue;
+            if (target < 0 || last < oldest) {
+                target = index;
+                oldest = last;
+            }
+        }
     } else {
         return;
     }
+    if (target < 0) return;
 
-    uint32_t interval_ms = (uint32_t)s_ui_cfg.refresh_s * 1000u;
-    if (s_last_start_ms != 0 && now - s_last_start_ms < (int64_t)interval_ms) return;
     if (app_net_request(target)) {
-        s_last_start_ms = now;
-        if (s_view == APP_VIEW_LIST) {
-            s_poll = (s_poll + 1) % s_ui_cfg.server_count;
-        }
+        s_attempt_ms[target] = now;
+        s_force_refresh = false;
     }
+}
+
+static void reset_attempts(void)
+{
+    memset(s_attempt_ms, 0, sizeof(s_attempt_ms));
 }
 
 static void enter_list(void)
@@ -185,8 +218,8 @@ static void enter_list(void)
     s_view = APP_VIEW_LIST;
     s_last_input_ms = now_ms();
     app_net_cancel();
-    s_last_start_ms = 0;
-    s_poll = 0;
+    s_force_refresh = false;
+    reset_attempts();
     render_view(true);
     maybe_request_refresh(now_ms());
 }
@@ -201,7 +234,7 @@ static void enter_detail(int index)
     app_net_cancel();
     memset(&s_trend, 0, sizeof(s_trend));
     s_latency_ms = 0;
-    s_last_start_ms = 0;
+    reset_attempts();
     render_view(true);
     maybe_request_refresh(now_ms());
 }
@@ -252,7 +285,7 @@ static void switch_server(int delta)
         app_net_cancel();
         memset(&s_trend, 0, sizeof(s_trend));
         s_latency_ms = 0;
-        s_last_start_ms = 0;
+        s_attempt_ms[s_sel] = 0;
         render_view(true);
         maybe_request_refresh(now_ms());
     } else {
@@ -345,7 +378,7 @@ static void wake_screen(void)
     s_last_input_ms = now_ms();
     s_applied_brightness = 0;   // 让 render_view 重新套用配置里的亮度
     app_wifi_set_low_power(false);
-    s_last_start_ms = 0;
+    reset_attempts();
     render_view(false);
     ESP_LOGI(TAG, "屏幕唤醒");
 }
@@ -387,9 +420,11 @@ static void handle_click(bsp_btn_t btn)
         if (btn == BSP_BTN_UP) switch_server(-1);
         else if (btn == BSP_BTN_DOWN) switch_server(1);
         else if (btn == BSP_BTN_OK) {
-            // 立即刷新：放弃在途请求,重新拉当前这台。
+            // 立即刷新：放弃在途请求并排到队首；若网络任务仍在收尾，
+            // s_force_refresh 会保证它一空闲就立刻重新发起。
             app_net_cancel();
-            s_last_start_ms = 0;
+            s_force_refresh = true;
+            s_attempt_ms[s_sel] = 0;
             maybe_request_refresh(now_ms());
         }
         break;

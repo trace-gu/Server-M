@@ -26,6 +26,9 @@ static const char *TAG = "app_ui";
 #define C_INK      0xE9EFF8u
 #define C_MUTED    0x7E93ADu
 #define C_ACCENT   0x35E0C8u
+#define C_BLUE     0x4EA8FFu
+#define C_VIOLET   0x9B8CFFu
+#define C_PINK     0xFF7AB6u
 #define C_OK       0x46D68C
 #define C_WARN     0xF3B94B
 #define C_CRIT     0xFF5F6D
@@ -246,7 +249,7 @@ static void font_check_text(const lv_font_t *font, const char *name, const char 
 esp_err_t app_ui_init(void)
 {
     static const char *probe =
-        "服务器监控列表详情磁盘IO负载下行上行运行时长在线离线待拉取未联网电量"
+        "服务器监控列表详情磁盘IO读写负载下行上行运行时长在线离线待拉取未联网电量"
         "长按设置返回刷新趋势当前台个已启动运行中暂无还没有服务器用手机配网添加"
         "屏幕亮度间隔自动熄屏网络热点名称密码浏览器打开已连接提示配置失败成功"
         "进入主界面数据正在等待毫秒刚刚秒前分前时前今天";
@@ -258,7 +261,7 @@ esp_err_t app_ui_init(void)
 // ---------------------------------------------------------------------------
 // 通用小部件
 // ---------------------------------------------------------------------------
-static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size)
+static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size, uint32_t tint)
 {
     lv_obj_t *arc = lv_arc_create(parent);
     lv_obj_set_pos(arc, x, y);
@@ -272,15 +275,15 @@ static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size)
     lv_obj_set_style_arc_width(arc, 7, LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, 7, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(arc, lv_color_hex(C_LINE), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(tint), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(arc, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(arc, 0, LV_PART_MAIN);
     return arc;
 }
 
 // 趋势用自绘迷你柱状图:24 根柱由一次 DRAW_MAIN 画完,不额外占用 LVGL 对象内存。
-#define SPARK_W 180
-#define SPARK_H 12
+#define SPARK_W 168
+#define SPARK_H 11
 
 typedef struct {
     uint8_t bars[APP_TREND_BARS];
@@ -307,9 +310,19 @@ static void spark_draw(lv_event_t *e)
     lv_draw_rect_dsc_init(&dsc);
     dsc.base.layer = layer;
     dsc.bg_opa = LV_OPA_COVER;
-    dsc.radius = 1;
+    dsc.radius = 0;
     dsc.border_width = 0;
 
+    // 先画一整条基线,没有历史数据时也是一条干净的底线,而不是散落的点。
+    dsc.bg_color = lv_color_hex(C_LINE);
+    lv_area_t base;
+    base.x1 = coords.x1;
+    base.x2 = coords.x2;
+    base.y1 = coords.y2;
+    base.y2 = coords.y2;
+    lv_draw_rect(layer, &dsc, &base);
+
+    dsc.radius = 2;
     int pitch = w / APP_TREND_BARS;
     if (pitch < 2) pitch = 2;
     int bar_w = pitch - 2;
@@ -317,15 +330,10 @@ static void spark_draw(lv_event_t *e)
 
     for (int i = 0; i < APP_TREND_BARS; i++) {
         int value = data->bars[i];
-        int bar_h;
-        if (value == 0xFF) {
-            bar_h = 1;
-            dsc.bg_color = lv_color_hex(C_LINE);
-        } else {
-            bar_h = value * h / 100;
-            if (bar_h < 1) bar_h = 1;
-            dsc.bg_color = lv_color_hex(data->color);
-        }
+        if (value == 0xFF) continue;      // 没有采样点,只留基线
+        int bar_h = value * h / 100;
+        if (bar_h < 1) bar_h = 1;
+        dsc.bg_color = lv_color_hex(data->color);
         lv_area_t bar;
         bar.x1 = coords.x1 + i * pitch;
         if (bar.x1 > coords.x2) break;
@@ -536,71 +544,99 @@ void app_ui_list_update(const app_config_t *cfg, int selected,
 // ---------------------------------------------------------------------------
 // 单台服务器详情
 // ---------------------------------------------------------------------------
+static void dot_add(lv_obj_t *parent, int x, int y, uint32_t color)
+{
+    lv_obj_t *dot = panel_create(parent, x, y, 6, 6, color);
+    lv_obj_set_style_radius(dot, 3, 0);
+}
+
+static void divider_add(lv_obj_t *parent, int y)
+{
+    lv_obj_t *line = panel_create(parent, 113, y, 1, 16, C_LINE);
+    lv_obj_set_style_radius(line, 0, 0);
+}
+
 static void detail_build(void)
 {
     lv_obj_t *scr = screen_create();
-    s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 4, 148);
-    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 8, 74);
+    s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 5, 148);
+    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 9, 74);
     text_right(s_detail_batt);
     lv_obj_t *rule = panel_create(scr, 10, 32, 220, 1, C_LINE);
     lv_obj_set_style_radius(rule, 0, 0);
 
-    s_detail_state = label_create(scr, "等待数据", &app_font_16, C_MUTED, 10, 38, 220);
+    s_detail_state = label_create(scr, "等待数据", &app_font_16, C_MUTED, 10, 34, 220);
 
-    // 双圆弧仪表:左右对称,下沿让给指标卡片。
-    s_arc_cpu = arc_create(scr, 22, 60, 76);
-    s_arc_mem = arc_create(scr, 142, 60, 76);
-    s_arc_cpu_pct = label_create(scr, "--", &app_font_20, C_INK, 22, 80, 76);
+    // 双圆弧仪表:CPU 青色、内存紫色,两个指标一眼可分。
+    s_arc_cpu = arc_create(scr, 22, 58, 76, C_ACCENT);
+    s_arc_mem = arc_create(scr, 142, 58, 76, C_VIOLET);
+    s_arc_cpu_pct = label_create(scr, "--", &app_font_20, C_INK, 22, 78, 76);
     text_center(s_arc_cpu_pct);
-    s_arc_mem_pct = label_create(scr, "--", &app_font_20, C_INK, 142, 80, 76);
+    s_arc_mem_pct = label_create(scr, "--", &app_font_20, C_INK, 142, 78, 76);
     text_center(s_arc_mem_pct);
-    lv_obj_t *cpu_name = label_create(scr, "CPU", &app_font_16, C_MUTED, 22, 108, 76);
+    lv_obj_t *cpu_name = label_create(scr, "CPU", &app_font_16, C_ACCENT, 22, 106, 76);
     text_center(cpu_name);
-    lv_obj_t *mem_name = label_create(scr, "内存", &app_font_16, C_MUTED, 142, 108, 76);
+    lv_obj_t *mem_name = label_create(scr, "内存", &app_font_16, C_VIOLET, 142, 106, 76);
     text_center(mem_name);
 
-    // 指标卡片:2 列 × 4 行,左列标签 + 右对齐数值,避免逐行散排。
-    lv_obj_t *grid = panel_create(scr, 8, 136, 224, 92, C_CARD);
-    for (int i = 0; i < 4; i++) {
-        int y = 4 + i * 22;
-        if (i < 3) {
-            lv_obj_t *rule2 = panel_create(grid, 112, y + 9, 1, 14, C_LINE);
-            lv_obj_set_style_radius(rule2, 0, 0);
-        }
-    }
-    label_create(grid, "磁盘", &app_font_16, C_MUTED, 10, 4, 40);
-    s_detail_disk = label_create(grid, "--", &app_font_16, C_INK, 44, 4, 60);
+    // 指标卡片:2 列 × 4 行,行距 24px(字体行高 20px,再小就会压字)。
+    // 标签列固定 32px(两个汉字),数值列 56px 右对齐,
+    // "读写 27.0M/s" 与 "容器 10/10" 都放得下,不会越界到隔壁列。
+    lv_obj_t *grid = panel_create(scr, 8, 138, 224, 100, C_CARD);
+    lv_obj_set_style_radius(grid, 14, 0);
+    lv_obj_set_style_border_width(grid, 1, 0);
+    lv_obj_set_style_border_color(grid, lv_color_hex(C_LINE), 0);
+
+    dot_add(grid, 8, 12, C_ACCENT);
+    label_create(grid, "磁盘", &app_font_16, C_MUTED, 18, 5, 34);
+    s_detail_disk = label_create(grid, "--", &app_font_16, C_INK, 54, 5, 56);
     text_right(s_detail_disk);
-    label_create(grid, "磁盘IO", &app_font_16, C_MUTED, 116, 4, 52);
-    s_detail_diskio = label_create(grid, "--", &app_font_16, C_INK, 168, 4, 48);
+    divider_add(grid, 5);
+
+    dot_add(grid, 120, 12, C_BLUE);
+    label_create(grid, "读写", &app_font_16, C_MUTED, 130, 5, 34);
+    s_detail_diskio = label_create(grid, "--", &app_font_16, C_BLUE, 164, 5, 56);
     text_right(s_detail_diskio);
 
-    label_create(grid, "负载", &app_font_16, C_MUTED, 10, 26, 40);
-    s_detail_load = label_create(grid, "--", &app_font_16, C_INK, 44, 26, 60);
+    dot_add(grid, 8, 36, C_VIOLET);
+    label_create(grid, "负载", &app_font_16, C_MUTED, 18, 29, 34);
+    s_detail_load = label_create(grid, "--", &app_font_16, C_VIOLET, 54, 29, 56);
     text_right(s_detail_load);
-    label_create(grid, "容器", &app_font_16, C_MUTED, 116, 26, 52);
-    s_detail_docker = label_create(grid, "--", &app_font_16, C_INK, 168, 26, 48);
+    divider_add(grid, 29);
+
+    dot_add(grid, 120, 36, C_OK);
+    label_create(grid, "容器", &app_font_16, C_MUTED, 130, 29, 34);
+    s_detail_docker = label_create(grid, "--", &app_font_16, C_OK, 164, 29, 56);
     text_right(s_detail_docker);
 
-    label_create(grid, "下行", &app_font_16, C_MUTED, 10, 48, 40);
-    s_detail_rx = label_create(grid, "--", &app_font_16, C_INK, 44, 48, 60);
+    dot_add(grid, 8, 60, C_BLUE);
+    label_create(grid, "下行", &app_font_16, C_MUTED, 18, 53, 34);
+    s_detail_rx = label_create(grid, "--", &app_font_16, C_BLUE, 54, 53, 56);
     text_right(s_detail_rx);
-    label_create(grid, "上行", &app_font_16, C_MUTED, 116, 48, 52);
-    s_detail_tx = label_create(grid, "--", &app_font_16, C_INK, 168, 48, 48);
+    divider_add(grid, 53);
+
+    dot_add(grid, 120, 60, C_PINK);
+    label_create(grid, "上行", &app_font_16, C_MUTED, 130, 53, 34);
+    s_detail_tx = label_create(grid, "--", &app_font_16, C_PINK, 164, 53, 56);
     text_right(s_detail_tx);
 
-    label_create(grid, "运行时长", &app_font_16, C_MUTED, 10, 70, 64);
-    s_detail_uptime = label_create(grid, "--", &app_font_16, C_INK, 78, 70, 138);
+    dot_add(grid, 8, 84, C_WARN);
+    label_create(grid, "运行时长", &app_font_16, C_MUTED, 18, 77, 72);
+    s_detail_uptime = label_create(grid, "--", &app_font_16, C_INK, 94, 77, 126);
     text_right(s_detail_uptime);
 
-    // 24 小时趋势:自绘柱状图,两行各 20px 行高,不能靠得更近,否则文字会重叠。
-    label_create(scr, "CPU", &app_font_16, C_MUTED, 10, 232, 34);
-    s_spark_cpu = spark_create(scr, 48, 236, &s_spark_cpu_data);
-    label_create(scr, "内存", &app_font_16, C_MUTED, 10, 254, 34);
-    s_spark_mem = spark_create(scr, 48, 258, &s_spark_mem_data);
+    // 24 小时趋势:装进卡片,空时段只留一条基线,留白也显得完整。
+    lv_obj_t *tcard = panel_create(scr, 8, 242, 224, 48, C_CARD);
+    lv_obj_set_style_radius(tcard, 12, 0);
+    lv_obj_set_style_border_width(tcard, 1, 0);
+    lv_obj_set_style_border_color(tcard, lv_color_hex(C_LINE), 0);
+    label_create(tcard, "CPU", &app_font_16, C_ACCENT, 10, 4, 34);
+    s_spark_cpu = spark_create(tcard, 46, 8, &s_spark_cpu_data);
+    label_create(tcard, "内存", &app_font_16, C_VIOLET, 10, 25, 34);
+    s_spark_mem = spark_create(tcard, 46, 29, &s_spark_mem_data);
 
     lv_obj_t *foot = label_create(scr, "确定刷新   长按确定返回", &app_font_16, C_MUTED,
-                                  10, 286, 220);
+                                  10, 296, 220);
     text_center(foot);
 
     s_chart_index = -1;
@@ -614,23 +650,30 @@ static void set_rate(lv_obj_t *label, uint32_t bps, bool known)
         text_set(label, "--");
         return;
     }
-    char buf[24];
-    app_fmt_rate(buf, sizeof(buf), bps);
-    // 去掉单位前的空格,把 "1.2 M/s" 压成 "1.2M/s",窄列也放得下。
-    char compact[24];
-    size_t j = 0;
-    for (size_t i = 0; buf[i] && j + 1 < sizeof(compact); i++) {
-        if (buf[i] != ' ') compact[j++] = buf[i];
+    // 自适应单位且最多 7 个字符(56px),窄列不会截断。
+    char buf[20];
+    if (bps < 1024) {
+        snprintf(buf, sizeof(buf), "%uB/s", (unsigned)bps);
+    } else if (bps < 1024u * 1024u) {
+        unsigned k10 = (unsigned)((uint64_t)bps * 10 / 1024u);
+        if (k10 < 1000) snprintf(buf, sizeof(buf), "%u.%uK/s", k10 / 10, k10 % 10);
+        else snprintf(buf, sizeof(buf), "%uK/s", (unsigned)(bps / 1024u));
+    } else {
+        unsigned m10 = (unsigned)((uint64_t)bps * 10 / (1024u * 1024u));
+        if (m10 < 1000) snprintf(buf, sizeof(buf), "%u.%uM/s", m10 / 10, m10 % 10);
+        else snprintf(buf, sizeof(buf), "%uM/s", (unsigned)(bps / (1024u * 1024u)));
     }
-    compact[j] = 0;
-    text_set(label, compact);
+    text_set(label, buf);
 }
 
-static void set_arc(lv_obj_t *arc, lv_obj_t *label, int value)
+static void set_arc(lv_obj_t *arc, lv_obj_t *label, int value, uint32_t tint)
 {
     int safe = value < 0 ? 0 : (value > 100 ? 100 : value);
     if (lv_arc_get_value(arc) != safe) lv_arc_set_value(arc, safe);
-    uint32_t color = value < 0 ? C_MUTED : level_color(safe);
+    uint32_t color = tint;
+    if (value < 0) color = C_MUTED;
+    else if (safe >= 90) color = C_CRIT;
+    else if (safe >= 75) color = C_WARN;
     lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_INDICATOR);
     set_percent(label, value);
 }
@@ -675,10 +718,15 @@ static void detail_apply(const app_config_t *cfg, int selected,
     }
 
     bool have = status && status->valid && status->cpu >= 0 && status->online;
-    set_arc(s_arc_cpu, s_arc_cpu_pct, have ? status->cpu : -1);
-    set_arc(s_arc_mem, s_arc_mem_pct, have ? status->mem : -1);
+    set_arc(s_arc_cpu, s_arc_cpu_pct, have ? status->cpu : -1, C_ACCENT);
+    set_arc(s_arc_mem, s_arc_mem_pct, have ? status->mem : -1, C_VIOLET);
 
     char tmp[24];
+    if (have && status->disk >= 0) {
+        lv_obj_set_style_text_color(s_detail_disk, lv_color_hex(level_color(status->disk)), 0);
+    } else {
+        lv_obj_set_style_text_color(s_detail_disk, lv_color_hex(C_MUTED), 0);
+    }
     set_percent(s_detail_disk, have ? status->disk : -1);
     set_rate(s_detail_diskio, have ? status->disk_io_bps : 0, have);
     app_fmt_load(tmp, sizeof(tmp), have ? status->load1_x100 : -1);
@@ -691,8 +739,12 @@ static void detail_apply(const app_config_t *cfg, int selected,
             snprintf(tmp, sizeof(tmp), "%d", status->docker_run);
         }
         text_set(s_detail_docker, tmp);
+        bool all_up = status->docker_total >= 0 && status->docker_run == status->docker_total;
+        lv_obj_set_style_text_color(s_detail_docker,
+                                    lv_color_hex(all_up ? C_OK : C_WARN), 0);
     } else {
         text_set(s_detail_docker, "--");
+        lv_obj_set_style_text_color(s_detail_docker, lv_color_hex(C_MUTED), 0);
     }
 
     if (have) {

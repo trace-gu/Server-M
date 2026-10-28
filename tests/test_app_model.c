@@ -192,7 +192,7 @@ static void test_selection_refresh(void)
     ctx.screen_on = false;
     CHECK(!app_refresh_due(&ctx));
 
-    CHECK(app_refresh_interval_ms(0) == 5000);
+    CHECK(app_refresh_interval_ms(0) == 1000);
     CHECK(app_refresh_interval_ms(10) == 10000);
     CHECK(app_refresh_interval_ms(9999) == 300000);
 }
