@@ -7,6 +7,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "app_config";
@@ -54,15 +55,25 @@ esp_err_t app_config_init(void)
         return err;
     }
 
-    app_config_t loaded;
-    size_t size = sizeof(loaded);
-    err = nvs_get_blob(handle, NVS_KEY, &loaded, &size);
+    // 配置结构约 7.3 KB,远超 app_main 任务的默认栈(3.5 KB)。
+    // 放在栈上会在启动阶段直接栈溢出并反复重启,因此只临时占用堆。
+    app_config_t *loaded = calloc(1, sizeof(*loaded));
+    if (!loaded) {
+        ESP_LOGE(TAG, "内存不足,无法读取已保存配置");
+        nvs_close(handle);
+        s_ready = true;
+        return ESP_ERR_NO_MEM;
+    }
+    size_t size = sizeof(*loaded);
+    err = nvs_get_blob(handle, NVS_KEY, loaded, &size);
     bool changed = false;
-    if (err == ESP_OK && size == sizeof(loaded) && loaded.version == 1) {
-        s_cfg = loaded;
+    if (err == ESP_OK && size == sizeof(*loaded) && loaded->version == 1) {
+        s_cfg = *loaded;
         app_config_sanitize(&s_cfg);
-        changed = memcmp(&loaded, &s_cfg, sizeof(s_cfg)) != 0;
+        changed = memcmp(loaded, &s_cfg, sizeof(s_cfg)) != 0;
+        free(loaded);
     } else {
+        free(loaded);
         ESP_LOGI(TAG, "未找到有效配置,使用默认值");
         changed = true;
     }
