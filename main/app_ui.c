@@ -8,6 +8,7 @@
 #include "app_model.h"
 
 #include "lvgl.h"
+#include "src/draw/lv_draw_arc.h"   // lvgl.h 不导出 arc 绘制描述符
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -45,6 +46,7 @@ static const char *TAG = "app_ui";
 
 // ---- 列表页控件 ----
 static lv_obj_t *s_list;
+static lv_obj_t *s_list_wifi;
 static lv_obj_t *s_list_batt;
 static lv_obj_t *s_list_empty;
 static lv_obj_t *s_row[LIST_ROWS];
@@ -57,6 +59,7 @@ static lv_obj_t *s_row_mem_fill[LIST_ROWS];
 
 // ---- 详情页控件 ----
 static lv_obj_t *s_detail;
+static lv_obj_t *s_detail_wifi;
 static lv_obj_t *s_detail_name;
 static lv_obj_t *s_detail_batt;
 static lv_obj_t *s_detail_state;
@@ -88,8 +91,12 @@ static lv_obj_t *s_wifi_name[WIFI_ROWS];
 static lv_obj_t *s_wifi_val[WIFI_ROWS];
 
 static lv_obj_t *s_portal;
+static lv_obj_t *s_portal_ssid_title;
 static lv_obj_t *s_portal_ssid;
+static lv_obj_t *s_portal_pass_title;
 static lv_obj_t *s_portal_pass;
+static lv_obj_t *s_portal_url;
+static lv_obj_t *s_portal_hint;
 static lv_obj_t *s_portal_elapsed;
 
 static const char *const SET_LABELS[7] = {
@@ -252,7 +259,7 @@ esp_err_t app_ui_init(void)
         "服务器监控列表详情磁盘IO读写负载下行上行运行时长在线离线待拉取未联网电量"
         "长按设置返回刷新趋势当前台个已启动运行中暂无还没有服务器用手机配网添加"
         "屏幕亮度间隔自动熄屏网络热点名称密码浏览器打开已连接提示配置失败成功"
-        "进入主界面数据正在等待毫秒刚刚秒前分前时前今天";
+        "进入主界面数据正在等待毫秒刚刚秒前分前时前今天访问方式同一内直接即可";
     font_check_text(&app_font_16, "app_font_16", probe);
     font_check_text(&app_font_20, "app_font_20", probe);
     return ESP_OK;
@@ -281,9 +288,112 @@ static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size, uint32_t t
     return arc;
 }
 
-// 趋势用自绘迷你柱状图:24 根柱由一次 DRAW_MAIN 画完,不额外占用 LVGL 对象内存。
+// ---------------------------------------------------------------------------
+// Wi-Fi 状态图标(自绘):底部圆点 + 三段圆弧,按信号强度点亮 1-3 段。
+// 未配置或未联网时只用低透明度画出灰白弧线,避免和"已连接"混淆。
+// ---------------------------------------------------------------------------
+#define WIFI_ICON_W 16
+#define WIFI_ICON_H 12
+
+typedef struct {
+    uint32_t color;
+    int level;      // 0=灰显, 1-3=点亮弧段数
+} wifi_icon_t;
+
+static wifi_icon_t s_wifi_icon_list = { .color = C_MUTED, .level = 0 };
+static wifi_icon_t s_wifi_icon_detail = { .color = C_MUTED, .level = 0 };
+
+static void wifi_icon_draw(lv_event_t *e)
+{
+    wifi_icon_t *data = lv_event_get_user_data(e);
+    lv_obj_t *obj = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    if (!data || !obj || !layer) return;
+
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+    const int cx = coords.x1 + WIFI_ICON_W / 2;
+    const int cy = coords.y2 - 1;
+
+    lv_draw_arc_dsc_t dsc;
+    lv_draw_arc_dsc_init(&dsc);
+    dsc.base.layer = layer;
+    dsc.color = lv_color_hex(data->color);
+    dsc.opa = data->level > 0 ? LV_OPA_COVER : LV_OPA_30;
+    dsc.width = 2;
+    dsc.rounded = 1;
+    dsc.center.x = cx;
+    dsc.center.y = cy;
+    dsc.start_angle = 225;
+    dsc.end_angle = 315;
+    int arcs = data->level > 0 ? data->level : 3;
+    for (int i = 1; i <= arcs; i++) {
+        dsc.radius = (uint16_t)(i * 3);
+        lv_draw_arc(layer, &dsc);
+    }
+
+    lv_draw_rect_dsc_t dot;
+    lv_draw_rect_dsc_init(&dot);
+    dot.base.layer = layer;
+    dot.bg_opa = LV_OPA_COVER;
+    dot.bg_color = lv_color_hex(data->color);
+    dot.radius = 2;
+    lv_area_t area;
+    area.x1 = cx - 1;
+    area.x2 = cx + 1;
+    area.y1 = cy - 2;
+    area.y2 = cy;
+    lv_draw_rect(layer, &dot, &area);
+}
+
+static lv_obj_t *wifi_icon_create(lv_obj_t *parent, int x, int y, wifi_icon_t *data)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    lv_obj_set_pos(obj, x, y);
+    lv_obj_set_size(obj, WIFI_ICON_W, WIFI_ICON_H);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, wifi_icon_draw, LV_EVENT_DRAW_MAIN, data);
+    return obj;
+}
+
+static void wifi_icon_update(lv_obj_t *obj, wifi_icon_t *data, const app_wifi_info_t *wifi)
+{
+    if (!data) return;
+    uint32_t color = C_MUTED;
+    int level = 0;
+    if (wifi) {
+        switch (wifi->state) {
+        case APP_WIFI_CONNECTED:
+            color = C_OK;
+            level = wifi->rssi >= -62 ? 3 : (wifi->rssi >= -74 ? 2 : 1);
+            break;
+        case APP_WIFI_CONNECTING:
+            color = C_WARN;
+            level = wifi->configured ? 2 : 0;
+            break;
+        case APP_WIFI_FAILED:
+            color = C_CRIT;
+            level = 1;
+            break;
+        default:
+            break;
+        }
+    }
+    if (data->color == color && data->level == level) return;
+    data->color = color;
+    data->level = level;
+    if (obj) lv_obj_invalidate(obj);
+}
+
+// 趋势用自绘迷你柱状图:已有采样会拉伸铺满整条宽度,并按自身最小/最大值
+// 缩放。这样刚启动时不会只挤在最右端,1-2 个百分点的波动也看得出来。
 #define SPARK_W 168
-#define SPARK_H 11
+#define SPARK_H 18
+#define SPARK_MIN_H 2
 
 typedef struct {
     uint8_t bars[APP_TREND_BARS];
@@ -291,7 +401,7 @@ typedef struct {
 } spark_t;
 
 static spark_t s_spark_cpu_data = { .color = C_ACCENT };
-static spark_t s_spark_mem_data = { .color = C_WARN };
+static spark_t s_spark_mem_data = { .color = C_VIOLET };
 
 static void spark_draw(lv_event_t *e)
 {
@@ -322,20 +432,58 @@ static void spark_draw(lv_event_t *e)
     base.y2 = coords.y2;
     lv_draw_rect(layer, &dsc, &base);
 
-    dsc.radius = 2;
+    int first = -1;
+    int last = -1;
+    for (int i = 0; i < APP_TREND_BARS; i++) {
+        if (data->bars[i] == 0xff) continue;
+        if (first < 0) first = i;
+        last = i;
+    }
+    if (first < 0) return;
+
+    int n = last - first + 1;
+    int vmin = 100;
+    int vmax = 0;
+    for (int i = first; i <= last; i++) {
+        int v = data->bars[i];
+        if (v < vmin) vmin = v;
+        if (v > vmax) vmax = v;
+    }
+    // 波动很小时把量程放大到至少 8 个点,否则 21% 和 22% 看起来一样高。
+    if (vmax - vmin < 8) {
+        int mid = (vmax + vmin) / 2;
+        vmin = mid - 4;
+        vmax = mid + 4;
+        if (vmin < 0) {
+            vmax -= vmin;
+            vmin = 0;
+        }
+        if (vmax > 100) {
+            vmin -= vmax - 100;
+            vmax = 100;
+        }
+    }
+    if (vmin < 0) vmin = 0;
+    if (vmax > 100) vmax = 100;
+    int span = vmax - vmin;
+    if (span <= 0) span = 1;
+
     int pitch = w / APP_TREND_BARS;
     if (pitch < 2) pitch = 2;
     int bar_w = pitch - 2;
     if (bar_w < 1) bar_w = 1;
 
-    for (int i = 0; i < APP_TREND_BARS; i++) {
-        int value = data->bars[i];
-        if (value == 0xFF) continue;      // 没有采样点,只留基线
-        int bar_h = value * h / 100;
+    dsc.radius = 2;
+    dsc.bg_color = lv_color_hex(data->color);
+    for (int c = 0; c < APP_TREND_BARS; c++) {
+        int idx = first + c * n / APP_TREND_BARS;
+        if (idx > last) idx = last;
+        int value = data->bars[idx];
+        int bar_h = SPARK_MIN_H + (value - vmin) * (h - SPARK_MIN_H) / span;
         if (bar_h < 1) bar_h = 1;
-        dsc.bg_color = lv_color_hex(data->color);
+        if (bar_h > h) bar_h = h;
         lv_area_t bar;
-        bar.x1 = coords.x1 + i * pitch;
+        bar.x1 = coords.x1 + c * pitch;
         if (bar.x1 > coords.x2) break;
         bar.x2 = bar.x1 + bar_w - 1;
         if (bar.x2 > coords.x2) bar.x2 = coords.x2;
@@ -401,8 +549,9 @@ static void header_add(lv_obj_t *scr, const char *title, const char *subtitle)
 static void list_build(void)
 {
     lv_obj_t *scr = screen_create();
-    label_create(scr, "Server-M监控", &app_font_20, C_INK, 10, 6, 0);
-    s_list_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 146, 10, 84);
+    label_create(scr, "Server-M监控", &app_font_20, C_INK, 10, 6, 146);
+    s_list_wifi = wifi_icon_create(scr, 160, 8, &s_wifi_icon_list);
+    s_list_batt = label_create(scr, "--", &app_font_16, C_MUTED, 182, 10, 48);
     text_right(s_list_batt);
     lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
     lv_obj_set_style_radius(rule, 0, 0);
@@ -470,9 +619,10 @@ static void list_apply(const app_config_t *cfg, int selected,
     if (!s_list || !cfg) return;
 
     char buf[64];
-    if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
-    else snprintf(buf, sizeof(buf), "电量 --");
+    if (battery_soc >= 0) snprintf(buf, sizeof(buf), "%d%%", battery_soc);
+    else snprintf(buf, sizeof(buf), "--");
     text_set(s_list_batt, buf);
+    wifi_icon_update(s_list_wifi, &s_wifi_icon_list, wifi);
 
     int count = cfg->server_count;
     if (count == 0) {
@@ -559,8 +709,9 @@ static void divider_add(lv_obj_t *parent, int y)
 static void detail_build(void)
 {
     lv_obj_t *scr = screen_create();
-    s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 5, 148);
-    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 9, 74);
+    s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 5, 110);
+    s_detail_wifi = wifi_icon_create(scr, 158, 8, &s_wifi_icon_detail);
+    s_detail_batt = label_create(scr, "--", &app_font_16, C_MUTED, 182, 9, 48);
     text_right(s_detail_batt);
     lv_obj_t *rule = panel_create(scr, 10, 32, 220, 1, C_LINE);
     lv_obj_set_style_radius(rule, 0, 0);
@@ -626,13 +777,13 @@ static void detail_build(void)
     text_right(s_detail_uptime);
 
     // 24 小时趋势:装进卡片,空时段只留一条基线,留白也显得完整。
-    lv_obj_t *tcard = panel_create(scr, 8, 242, 224, 48, C_CARD);
+    lv_obj_t *tcard = panel_create(scr, 8, 236, 224, 56, C_CARD);
     lv_obj_set_style_radius(tcard, 12, 0);
     lv_obj_set_style_border_width(tcard, 1, 0);
     lv_obj_set_style_border_color(tcard, lv_color_hex(C_LINE), 0);
     label_create(tcard, "CPU", &app_font_16, C_ACCENT, 10, 4, 34);
-    s_spark_cpu = spark_create(tcard, 46, 8, &s_spark_cpu_data);
-    label_create(tcard, "内存", &app_font_16, C_VIOLET, 10, 25, 34);
+    s_spark_cpu = spark_create(tcard, 46, 3, &s_spark_cpu_data);
+    label_create(tcard, "内存", &app_font_16, C_VIOLET, 10, 30, 34);
     s_spark_mem = spark_create(tcard, 46, 29, &s_spark_mem_data);
 
     lv_obj_t *foot = label_create(scr, "确定刷新   长按确定返回", &app_font_16, C_MUTED,
@@ -685,9 +836,10 @@ static void detail_apply(const app_config_t *cfg, int selected,
     if (!s_detail || !cfg) return;
 
     char buf[96];
-    if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
-    else snprintf(buf, sizeof(buf), "电量 --");
+    if (battery_soc >= 0) snprintf(buf, sizeof(buf), "%d%%", battery_soc);
+    else snprintf(buf, sizeof(buf), "--");
     text_set(s_detail_batt, buf);
+    wifi_icon_update(s_detail_wifi, &s_wifi_icon_detail, wifi);
 
     if (selected < 0 || selected >= cfg->server_count) {
         text_set(s_detail_name, "服务器");
@@ -952,17 +1104,17 @@ static void portal_build(void)
     header_add(scr, "手机配网", "长按确定退出");
 
     lv_obj_t *card = panel_create(scr, 10, 50, 220, 190, C_CARD);
-    label_create(card, "热点名称", &app_font_16, C_MUTED, 16, 10, 188);
+    s_portal_ssid_title = label_create(card, "热点名称", &app_font_16, C_MUTED, 16, 10, 188);
     s_portal_ssid = label_create(card, "AI-Passport", &app_font_20, C_INK, 16, 28, 188);
-    label_create(card, "热点密码", &app_font_16, C_MUTED, 16, 60, 188);
-    s_portal_pass = label_create(card, "--------", &app_font_20, C_INK, 16, 78, 188);
-    label_create(card, "浏览器打开", &app_font_16, C_MUTED, 16, 110, 188);
-    label_create(card, "http://192.168.4.1", &app_font_20, C_ACCENT, 16, 128, 188);
+    s_portal_pass_title = label_create(card, "热点密码", &app_font_16, C_MUTED, 16, 60, 188);
+    s_portal_pass = label_create(card, "--------", &app_font_16, C_INK, 16, 78, 188);
+    label_create(card, "手机访问", &app_font_16, C_MUTED, 16, 110, 188);
+    s_portal_url = label_create(card, "http://192.168.4.1", &app_font_16, C_ACCENT, 16, 128, 188);
     s_portal_elapsed = label_create(card, "已开启 0 秒", &app_font_16, C_MUTED, 16, 158, 188);
 
-    lv_obj_t *hint1 = label_create(scr, "连接热点后按网页提示配置", &app_font_16, C_INK,
-                                   10, 250, 220);
-    text_center(hint1);
+    s_portal_hint = label_create(scr, "连接热点后按网页提示配置", &app_font_16, C_INK,
+                                 10, 250, 220);
+    text_center(s_portal_hint);
     lv_obj_t *hint2 = label_create(scr, "服务器和 Wi-Fi 都可添加", &app_font_16, C_MUTED,
                                    10, 272, 220);
     text_center(hint2);
@@ -982,11 +1134,20 @@ static void portal_apply(uint32_t elapsed_s, bool ap_active)
     lv_obj_set_style_text_color(s_portal_elapsed, lv_color_hex(ap_active ? C_OK : C_CRIT), 0);
 }
 
-void app_ui_portal_show(const char *ssid, const char *pass, uint32_t elapsed_s, bool ap_active)
+void app_ui_portal_show(const char *ssid, const char *pass, const char *url,
+                        uint32_t elapsed_s, bool ap_active)
 {
     if (!s_portal) portal_build();
+    text_set(s_portal_ssid_title, ap_active ? "热点名称" : "当前 Wi-Fi");
     text_set(s_portal_ssid, ssid && ssid[0] ? ssid : "AI-Passport");
-    text_set(s_portal_pass, pass && pass[0] ? pass : "--------");
+    text_set(s_portal_pass_title, ap_active ? "热点密码" : "访问方式");
+    text_set(s_portal_pass, ap_active ? (pass && pass[0] ? pass : "--------")
+                                     : "同一 Wi-Fi 内直接打开");
+    char buffer[40];
+    snprintf(buffer, sizeof(buffer), "http://%s", url && url[0] ? url : "192.168.4.1");
+    text_set(s_portal_url, buffer);
+    text_set(s_portal_hint,
+             ap_active ? "连接热点后按网页提示配置" : "手机连同一 Wi-Fi 即可访问");
     portal_apply(elapsed_s, ap_active);
     lv_screen_load(s_portal);
     drop_screen(&s_list);

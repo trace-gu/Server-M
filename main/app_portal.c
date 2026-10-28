@@ -25,6 +25,9 @@ static httpd_handle_t s_server;
 static int64_t s_started_ms;
 static atomic_bool s_exit_requested;
 static atomic_bool s_config_changed;
+// 配网页对外地址:连着 Wi-Fi 时用本机在局域网里的 IP,否则退化为 SoftAP 的 192.168.4.1。
+static char s_access_ip[16] = "192.168.4.1";
+static bool s_sta_mode;
 
 static esp_err_t send_json(httpd_req_t *req, cJSON *root)
 {
@@ -358,7 +361,17 @@ static const httpd_uri_t URIS[] = {
 esp_err_t app_portal_start(void)
 {
     if (s_server) return ESP_OK;
-    if (!app_wifi_start_ap()) return ESP_FAIL;
+
+    // 已经连着 Wi-Fi 时不再另开热点:设备保持在线,手机在同一局域网里直接访问。
+    app_wifi_info_t info;
+    app_wifi_get_info(&info);
+    s_sta_mode = info.state == APP_WIFI_CONNECTED && info.ip[0] != '\0';
+    if (s_sta_mode) {
+        snprintf(s_access_ip, sizeof(s_access_ip), "%s", info.ip);
+    } else {
+        if (!app_wifi_start_ap()) return ESP_FAIL;
+        snprintf(s_access_ip, sizeof(s_access_ip), "%s", "192.168.4.1");
+    }
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = sizeof(URIS) / sizeof(URIS[0]);
@@ -372,7 +385,7 @@ esp_err_t app_portal_start(void)
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) {
         s_server = NULL;
-        app_wifi_stop_ap();
+        if (!s_sta_mode) app_wifi_stop_ap();
         return err;
     }
     for (size_t i = 0; i < sizeof(URIS) / sizeof(URIS[0]); i++) {
@@ -381,15 +394,25 @@ esp_err_t app_portal_start(void)
             ESP_LOGE(TAG, "注册 %s 失败: %s", URIS[i].uri, esp_err_to_name(err));
             httpd_stop(s_server);
             s_server = NULL;
-            app_wifi_stop_ap();
+            if (!s_sta_mode) app_wifi_stop_ap();
             return err;
         }
     }
     s_started_ms = esp_timer_get_time() / 1000;
     atomic_store(&s_exit_requested, false);
     atomic_store(&s_config_changed, false);
-    ESP_LOGI(TAG, "配网页面已启动: http://192.168.4.1");
+    ESP_LOGI(TAG, "配网页面已启动: http://%s (STA=%d)", s_access_ip, (int)s_sta_mode);
     return ESP_OK;
+}
+
+const char *app_portal_ip(void)
+{
+    return s_access_ip;
+}
+
+bool app_portal_sta_mode(void)
+{
+    return s_sta_mode;
 }
 
 void app_portal_stop(void)
@@ -398,7 +421,9 @@ void app_portal_stop(void)
         httpd_stop(s_server);
         s_server = NULL;
     }
+    // STA 模式下本来就没开热点,stop_ap 是空操作。
     app_wifi_stop_ap();
+    s_sta_mode = false;
     atomic_store(&s_exit_requested, false);
 }
 

@@ -128,7 +128,8 @@ static void render_view(bool full)
         break;
     case APP_VIEW_PORTAL:
         if (full) {
-            app_ui_portal_show(app_wifi_ap_ssid(), app_wifi_ap_password(),
+            const char *portal_ssid = app_wifi_ap_active() ? app_wifi_ap_ssid() : wifi.ssid;
+            app_ui_portal_show(portal_ssid, app_wifi_ap_password(), app_portal_ip(),
                                app_portal_elapsed_s(), app_wifi_ap_active());
         } else {
             app_ui_portal_update(app_portal_elapsed_s(), app_wifi_ap_active());
@@ -368,7 +369,8 @@ static void screen_off(void)
     bsp_display_backlight(0);
     s_applied_brightness = 0;
     app_net_cancel();
-    app_wifi_set_low_power(true);
+    // 配网页开着的时候不要降省电档,否则手机的请求会被拖慢。
+    app_wifi_set_low_power(!app_portal_active());
     ESP_LOGI(TAG, "熄屏，停止轮询");
 }
 

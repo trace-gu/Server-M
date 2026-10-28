@@ -45,6 +45,7 @@ void app_ui_settings_update(const app_config_t *cfg, const app_wifi_info_t *wifi
 void app_ui_wifi_show(const app_config_t *cfg, const app_wifi_info_t *wifi, int selected);
 void app_ui_wifi_update(const app_config_t *cfg, const app_wifi_info_t *wifi, int selected);
 
-// 手机配网页。
-void app_ui_portal_show(const char *ssid, const char *pass, uint32_t elapsed_s, bool ap_active);
+// 手机配网页。url 是手机应访问的地址(局域网 IP 或热点地址)。
+void app_ui_portal_show(const char *ssid, const char *pass, const char *url,
+                        uint32_t elapsed_s, bool ap_active);
 void app_ui_portal_update(uint32_t elapsed_s, bool ap_active);
