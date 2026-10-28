@@ -313,42 +313,43 @@ static void home_build(void)
 
     s_arc_cpu = arc_create(s_home_body, 22, 64, 76);
     s_arc_mem = arc_create(s_home_body, 142, 64, 76);
-    s_arc_cpu_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 22, 86, 76);
+    // 16px 字体的行高是 20px,每行至少间隔 20px,否则相邻文字会压在一起。
+    s_arc_cpu_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 22, 84, 76);
     text_center(s_arc_cpu_pct);
-    s_arc_mem_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 142, 86, 76);
+    s_arc_mem_pct = label_create(s_home_body, "--", &app_font_20, C_INK, 142, 84, 76);
     text_center(s_arc_mem_pct);
-    lv_obj_t *cpu_name = label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 22, 110, 76);
+    lv_obj_t *cpu_name = label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 22, 112, 76);
     text_center(cpu_name);
-    lv_obj_t *mem_name = label_create(s_home_body, "内存", &app_font_16, C_MUTED, 142, 110, 76);
+    lv_obj_t *mem_name = label_create(s_home_body, "内存", &app_font_16, C_MUTED, 142, 112, 76);
     text_center(mem_name);
 
-    label_create(s_home_body, "磁盘", &app_font_16, C_MUTED, 10, 146, 40);
-    s_home_disk = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 146, 56);
-    label_create(s_home_body, "交换", &app_font_16, C_MUTED, 124, 146, 40);
-    s_home_swap = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 146, 52);
+    label_create(s_home_body, "磁盘", &app_font_16, C_MUTED, 10, 144, 40);
+    s_home_disk = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 144, 56);
+    label_create(s_home_body, "交换", &app_font_16, C_MUTED, 124, 144, 40);
+    s_home_swap = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 144, 52);
 
-    label_create(s_home_body, "负载", &app_font_16, C_MUTED, 10, 166, 40);
-    s_home_load = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 166, 56);
-    label_create(s_home_body, "温度", &app_font_16, C_MUTED, 124, 166, 40);
-    s_home_temp = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 166, 58);
+    label_create(s_home_body, "负载", &app_font_16, C_MUTED, 10, 164, 40);
+    s_home_load = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 164, 56);
+    label_create(s_home_body, "温度", &app_font_16, C_MUTED, 124, 164, 40);
+    s_home_temp = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 164, 58);
 
-    label_create(s_home_body, "下行", &app_font_16, C_MUTED, 10, 186, 40);
-    s_home_rx = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 186, 66);
-    label_create(s_home_body, "上行", &app_font_16, C_MUTED, 124, 186, 40);
-    s_home_tx = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 186, 58);
+    label_create(s_home_body, "下行", &app_font_16, C_MUTED, 10, 184, 40);
+    s_home_rx = label_create(s_home_body, "--", &app_font_16, C_INK, 54, 184, 66);
+    label_create(s_home_body, "上行", &app_font_16, C_MUTED, 124, 184, 40);
+    s_home_tx = label_create(s_home_body, "--", &app_font_16, C_INK, 168, 184, 58);
 
-    label_create(s_home_body, "运行时长", &app_font_16, C_MUTED, 10, 206, 72);
-    s_home_uptime = label_create(s_home_body, "--", &app_font_16, C_INK, 86, 206, 140);
+    label_create(s_home_body, "运行时长", &app_font_16, C_MUTED, 10, 204, 72);
+    s_home_uptime = label_create(s_home_body, "--", &app_font_16, C_INK, 86, 204, 140);
 
-    label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 6, 228, 30);
-    s_chart_cpu = chart_create(s_home_body, 36, 230, 194, 12, C_ACCENT);
+    label_create(s_home_body, "CPU", &app_font_16, C_MUTED, 6, 224, 30);
+    s_chart_cpu = chart_create(s_home_body, 36, 228, 194, 10, C_ACCENT);
     s_ser_cpu = lv_chart_add_series(s_chart_cpu, lv_color_hex(C_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
     label_create(s_home_body, "内存", &app_font_16, C_MUTED, 6, 244, 30);
-    s_chart_mem = chart_create(s_home_body, 36, 246, 194, 12, C_WARN);
+    s_chart_mem = chart_create(s_home_body, 36, 248, 194, 10, C_WARN);
     s_ser_mem = lv_chart_add_series(s_chart_mem, lv_color_hex(C_WARN), LV_CHART_AXIS_PRIMARY_Y);
 
     lv_obj_t *hint = label_create(s_home_body, "上下切换  长按确定设置", &app_font_16, C_MUTED,
-                                  10, 262, 220);
+                                  10, 264, 220);
     text_center(hint);
 
     s_home_empty = lv_obj_create(scr);
