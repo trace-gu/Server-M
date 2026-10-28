@@ -36,7 +36,7 @@ from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 INSTALL_DIR = Path("/opt/ai-passport")
 CONFIG_DIR = Path("/etc/ai-passport")
