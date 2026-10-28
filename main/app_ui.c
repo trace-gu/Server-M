@@ -62,7 +62,7 @@ static lv_obj_t *s_arc_mem;
 static lv_obj_t *s_arc_cpu_pct;
 static lv_obj_t *s_arc_mem_pct;
 static lv_obj_t *s_detail_disk;
-static lv_obj_t *s_detail_swap;
+static lv_obj_t *s_detail_diskio;
 static lv_obj_t *s_detail_load;
 static lv_obj_t *s_detail_docker;
 static lv_obj_t *s_detail_rx;
@@ -248,7 +248,7 @@ static void font_check_text(const lv_font_t *font, const char *name, const char 
 esp_err_t app_ui_init(void)
 {
     static const char *probe =
-        "服务器监控列表详情磁盘交换负载下行上行运行时长在线离线待拉取未联网电量"
+        "服务器监控列表详情磁盘IO负载下行上行运行时长在线离线待拉取未联网电量"
         "长按设置返回刷新趋势当前台个已启动运行中暂无还没有服务器用手机配网添加"
         "屏幕亮度间隔自动熄屏网络热点名称密码浏览器打开已连接提示配置失败成功"
         "进入主界面数据正在等待毫秒刚刚秒前分前时前今天";
@@ -336,7 +336,7 @@ static void header_add(lv_obj_t *scr, const char *title, const char *subtitle)
 static void list_build(void)
 {
     lv_obj_t *scr = screen_create();
-    label_create(scr, "服务器", &app_font_20, C_INK, 10, 6, 0);
+    label_create(scr, "Server-M监控", &app_font_20, C_INK, 10, 6, 0);
     s_list_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 146, 10, 84);
     text_right(s_list_batt);
     lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
@@ -503,9 +503,10 @@ static void detail_build(void)
     text_center(mem_name);
 
     label_create(scr, "磁盘", &app_font_16, C_MUTED, 10, 142, 40);
-    s_detail_disk = label_create(scr, "--", &app_font_16, C_INK, 54, 142, 56);
-    label_create(scr, "交换", &app_font_16, C_MUTED, 124, 142, 40);
-    s_detail_swap = label_create(scr, "--", &app_font_16, C_INK, 168, 142, 52);
+    s_detail_disk = label_create(scr, "--", &app_font_16, C_INK, 54, 142, 50);
+    label_create(scr, "磁盘IO", &app_font_16, C_MUTED, 108, 142, 52);
+    s_detail_diskio = label_create(scr, "--", &app_font_16, C_INK, 166, 142, 64);
+    text_right(s_detail_diskio);
 
     label_create(scr, "负载", &app_font_16, C_MUTED, 10, 162, 40);
     s_detail_load = label_create(scr, "--", &app_font_16, C_INK, 54, 162, 56);
@@ -603,7 +604,12 @@ static void detail_apply(const app_config_t *cfg, int selected,
 
     char tmp[24];
     set_percent(s_detail_disk, have ? status->disk : -1);
-    set_percent(s_detail_swap, have ? status->swap : -1);
+    if (have) {
+        app_fmt_rate(tmp, sizeof(tmp), status->disk_io_bps);
+        text_set(s_detail_diskio, tmp);
+    } else {
+        text_set(s_detail_diskio, "--");
+    }
     app_fmt_load(tmp, sizeof(tmp), have ? status->load1_x100 : -1);
     text_set(s_detail_load, tmp);
 

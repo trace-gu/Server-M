@@ -147,6 +147,16 @@ static esp_err_t parse_body(const char *body, app_server_status_t *out, app_tren
     if (json_num(root, "net_tx", &value)) {
         out->net_tx_bps = value < 0 ? 0 : (value > 4294967295.0 ? 4294967295u : (uint32_t)value);
     }
+    uint32_t disk_read = 0;
+    uint32_t disk_write = 0;
+    if (json_num(root, "disk_read", &value)) {
+        disk_read = value < 0 ? 0 : (value > 4294967295.0 ? 4294967295u : (uint32_t)value);
+    }
+    if (json_num(root, "disk_write", &value)) {
+        disk_write = value < 0 ? 0 : (value > 4294967295.0 ? 4294967295u : (uint32_t)value);
+    }
+    if (disk_read > UINT32_MAX - disk_write) out->disk_io_bps = UINT32_MAX;
+    else out->disk_io_bps = disk_read + disk_write;
     if (json_num(root, "uptime", &value)) out->uptime_s = value < 0 ? 0 : (uint32_t)value;
     if (json_num(root, "ts", &value)) out->server_ts = value < 0 ? 0 : (uint32_t)value;
 

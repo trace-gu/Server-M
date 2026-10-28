@@ -21,6 +21,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import shutil
 import socket
 import ssl
@@ -266,6 +267,39 @@ def read_net_bytes() -> tuple[int, int] | None:
     return rx, tx
 
 
+def _base_device(name: str) -> str:
+    """把分区名归一成整盘名：sda1->sda, nvme0n1p1->nvme0n1, mmcblk0p1->mmcblk0。"""
+    if name.startswith(("nvme", "mmcblk", "md")):
+        return re.sub(r"p\d+$", "", name)
+    return re.sub(r"\d+$", "", name)
+
+
+def read_disk_io() -> tuple[int, int] | None:
+    """返回 (累计读字节, 累计写字节)。只统计整块物理盘,避免分区重复计数。"""
+    skip = ("loop", "ram", "zram", "dm-", "md", "sr", "fd")
+    try:
+        with open("/proc/diskstats", "r", encoding="ascii") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return None
+    totals: dict[str, tuple[int, int]] = {}
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 14:
+            continue
+        name = parts[2]
+        if name.startswith(skip) or _base_device(name) != name:
+            continue
+        try:
+            totals[name] = (int(parts[5]) * 512, int(parts[9]) * 512)
+        except ValueError:
+            continue
+    if not totals:
+        return None
+    return (sum(v[0] for v in totals.values()),
+            sum(v[1] for v in totals.values()))
+
+
 def read_uptime() -> int:
     try:
         with open("/proc/uptime", "r", encoding="ascii") as fh:
@@ -333,10 +367,13 @@ class LocalMetrics:
         self._lock = threading.Lock()
         self._prev_cpu = None
         self._prev_net = None
+        self._prev_disk = None
         self._prev_time = None
         self._cpu = -1
         self._rx_bps = 0
         self._tx_bps = 0
+        self._disk_r_bps = 0
+        self._disk_w_bps = 0
         self._trend_step = max(60, int(trend_step))
         self._trend: deque[list] = deque(maxlen=TREND_POINTS)
         self._last_trend_ts = 0.0
@@ -392,6 +429,14 @@ class LocalMetrics:
                 self._tx_bps = max(0, int((net[1] - self._prev_net[1]) / elapsed))
             if net:
                 self._prev_net = net
+
+            disk = read_disk_io()
+            if disk and self._prev_disk and self._prev_time is not None:
+                elapsed = max(0.001, now - self._prev_time)
+                self._disk_r_bps = max(0, int((disk[0] - self._prev_disk[0]) / elapsed))
+                self._disk_w_bps = max(0, int((disk[1] - self._prev_disk[1]) / elapsed))
+            if disk:
+                self._prev_disk = disk
             self._prev_time = now
 
             mem = read_meminfo()
@@ -406,6 +451,8 @@ class LocalMetrics:
                 "disk": read_disk_percent(),
                 "net_rx": self._rx_bps,
                 "net_tx": self._tx_bps,
+                "disk_read": self._disk_r_bps,
+                "disk_write": self._disk_w_bps,
                 "uptime": read_uptime(),
             }
             try:
@@ -636,7 +683,7 @@ class Agent:
             "panel": "本地",
         }
         for key in ("cpu", "mem", "swap", "disk", "load1", "net_rx", "net_tx",
-                    "uptime", "temp"):
+                    "disk_read", "disk_write", "uptime", "temp"):
             if key in local:
                 payload[key] = local[key]
 

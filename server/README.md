@@ -108,6 +108,8 @@ is required; self-signed certificates are rejected.
   "load1": 0.42,
   "net_rx": 2048,
   "net_tx": 1024,
+  "disk_read": 4096,
+  "disk_write": 2048,
   "uptime": 86400,
   "temp": 46.5,
   "docker_run": 7,
@@ -123,6 +125,7 @@ is required; self-signed certificates are rejected.
 | `cpu`, `mem`, `swap`, `disk` | Percent, 0-100. Missing values are `-1`. |
 | `load1` | 1-minute load average. |
 | `net_rx`, `net_tx` | Bytes per second over the sampling window. |
+| `disk_read`, `disk_write` | Whole-disk read/write bytes per second over the sampling window. |
 | `uptime` | Seconds since boot. |
 | `temp` | Celsius, when a thermal zone or panel value exists. |
 | `docker_run`, `docker_total`, `docker_bad` | Running, all, and abnormal (not `running`) containers, when Docker is present. |

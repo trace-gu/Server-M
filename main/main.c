@@ -482,6 +482,7 @@ static void merge_stale(app_server_status_t *merged, const app_server_status_t *
     if (merged->backup_state < 0) merged->backup_state = previous->backup_state;
     if (merged->net_rx_bps == 0) merged->net_rx_bps = previous->net_rx_bps;
     if (merged->net_tx_bps == 0) merged->net_tx_bps = previous->net_tx_bps;
+    if (merged->disk_io_bps == 0) merged->disk_io_bps = previous->disk_io_bps;
     if (merged->uptime_s == 0) merged->uptime_s = previous->uptime_s;
 }
 
@@ -575,7 +576,7 @@ static esp_err_t nvs_init(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "AI Passport 服务器监控启动");
+    ESP_LOGI(TAG, "Server-M监控启动");
 
     esp_err_t err = nvs_init();
     if (err != ESP_OK) {

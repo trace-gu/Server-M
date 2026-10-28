@@ -62,6 +62,7 @@ typedef struct {
     int16_t load1_x100;      // 0.42 -> 42
     uint32_t net_rx_bps;
     uint32_t net_tx_bps;
+    uint32_t disk_io_bps;    // 磁盘读 + 写 字节/秒
     uint32_t uptime_s;
     int16_t temp_c_x10;      // 45.2C -> 452
     int16_t ssl_days;        // -1 未知

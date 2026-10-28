@@ -101,6 +101,16 @@ class ParseBaotaTest(unittest.TestCase):
         self.assertNotIn("net_rx", out)
 
 
+class DiskDeviceTest(unittest.TestCase):
+    def test_partition_names_fold_to_whole_disks(self) -> None:
+        base = agent_mod._base_device
+        self.assertEqual(base("sda"), "sda")
+        self.assertEqual(base("sda1"), "sda")
+        self.assertEqual(base("nvme0n1"), "nvme0n1")
+        self.assertEqual(base("nvme0n1p2"), "nvme0n1")
+        self.assertEqual(base("mmcblk0p1"), "mmcblk0")
+
+
 class ConfigTest(unittest.TestCase):
     def test_roundtrip_and_truncated_input(self) -> None:
         import tempfile

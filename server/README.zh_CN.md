@@ -105,6 +105,8 @@ ESP-IDF 内置 CA 证书库校验证书，因此必须是公共 CA 签发的证�
   "load1": 0.42,
   "net_rx": 2048,
   "net_tx": 1024,
+  "disk_read": 4096,
+  "disk_write": 2048,
   "uptime": 86400,
   "temp": 46.5,
   "docker_run": 7,
@@ -120,6 +122,7 @@ ESP-IDF 内置 CA 证书库校验证书，因此必须是公共 CA 签发的证�
 | `cpu`、`mem`、`swap`、`disk` | 百分比，0-100。面板未提供时为 `-1`。 |
 | `load1` | 1 分钟平均负载。 |
 | `net_rx`、`net_tx` | 采样窗口内的每秒字节数。 |
+| `disk_read`、`disk_write` | 采样窗口内整盘读/写每秒字节数。 |
 | `uptime` | 开机秒数。 |
 | `temp` | 摄氏度，存在温度传感器或面板值时提供。 |
 | `docker_run`、`docker_total`、`docker_bad` | 运行中、总数、异常（非 running）容器数，有 Docker 时提供。 |
