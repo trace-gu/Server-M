@@ -61,7 +61,10 @@ li .grow{flex:1;min-width:0}
   <div class="row" style="margin-top:10px">
     <button class="ghost" id="scanbtn" onclick="scanWifi()">扫描附近网络</button>
   </div>
-  <ul id="scanlist"></ul>
+  <select id="wscan" onchange="pickScan(this)" style="margin-top:10px">
+    <option value="">选择附近的 Wi-Fi…</option>
+  </select>
+  <div class="hint">点“扫描附近网络”列出周围 SSID（按信号强弱排序），选中即填入下方名称。</div>
   <div class="row" style="margin-top:10px">
     <input id="wssid" placeholder="Wi-Fi 名称 (SSID)" autocomplete="off">
     <input id="wpass" type="password" placeholder="密码（开放网络留空）" autocomplete="off">
@@ -153,22 +156,30 @@ async function load(){
 }
 async function scanWifi(){
   const btn=document.getElementById('scanbtn');
-  const ul=document.getElementById('scanlist');
-  btn.disabled=true;btn.textContent='扫描中...';ul.innerHTML='';
+  const sel=document.getElementById('wscan');
+  btn.disabled=true;btn.textContent='扫描中...';
+  sel.innerHTML='<option value="">扫描中…</option>';
   try{
     const r=await fetch('/api/scan',{cache:'no-store'});
     const j=await r.json();
     if(!j.ok)throw new Error(j.error||('HTTP '+r.status));
-    if(!j.networks.length){ul.innerHTML='<li><span class="sub">没有发现可见网络</span></li>';return;}
+    if(!j.networks.length){sel.innerHTML='<option value="">没有发现可见网络</option>';return;}
+    sel.innerHTML='<option value="">选择附近的 Wi-Fi…</option>';
     j.networks.forEach(n=>{
-      const li=document.createElement('li');
-      li.innerHTML='<div class="grow"><div class="name">'+esc(n.ssid)+'</div><div class="sub">'+(n.secure?'加密':'开放')+' · 信号 '+n.rssi+' dBm</div></div>';
-      const use=document.createElement('button');use.className='ghost small';use.textContent='填入';
-      use.onclick=()=>{document.getElementById('wssid').value=n.ssid;document.getElementById('wpass').focus();};
-      li.appendChild(use);ul.appendChild(li);
+      const o=document.createElement('option');
+      o.value=n.ssid;
+      o.dataset.secure=n.secure?'1':'0';
+      o.textContent=n.ssid+' · '+(n.secure?'加密':'开放')+' · '+n.rssi+'dBm';
+      sel.appendChild(o);
     });
-  }catch(e){msg('wmsg','扫描失败：'+e.message,false);}
+  }catch(e){sel.innerHTML='<option value="">扫描失败</option>';msg('wmsg','扫描失败：'+e.message,false);}
   finally{btn.disabled=false;btn.textContent='扫描附近网络';}
+}
+function pickScan(sel){
+  const v=sel.value;
+  if(!v)return;
+  document.getElementById('wssid').value=v;
+  document.getElementById('wpass').focus();
 }
 function renderWifi(){
   const ul=document.getElementById('wifilist');ul.innerHTML='';

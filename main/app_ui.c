@@ -68,10 +68,8 @@ static lv_obj_t *s_detail_docker;
 static lv_obj_t *s_detail_rx;
 static lv_obj_t *s_detail_tx;
 static lv_obj_t *s_detail_uptime;
-static lv_obj_t *s_chart_cpu;
-static lv_obj_t *s_chart_mem;
-static lv_chart_series_t *s_ser_cpu;
-static lv_chart_series_t *s_ser_mem;
+static lv_obj_t *s_spark_cpu;
+static lv_obj_t *s_spark_mem;
 static int64_t s_chart_fetched_ms;
 static int s_chart_index = -1;
 
@@ -280,25 +278,84 @@ static lv_obj_t *arc_create(lv_obj_t *parent, int x, int y, int size)
     return arc;
 }
 
-static lv_obj_t *chart_create(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
+// 趋势用自绘迷你柱状图:24 根柱由一次 DRAW_MAIN 画完,不额外占用 LVGL 对象内存。
+#define SPARK_W 180
+#define SPARK_H 12
+
+typedef struct {
+    uint8_t bars[APP_TREND_BARS];
+    uint32_t color;
+} spark_t;
+
+static spark_t s_spark_cpu_data = { .color = C_ACCENT };
+static spark_t s_spark_mem_data = { .color = C_WARN };
+
+static void spark_draw(lv_event_t *e)
 {
-    lv_obj_t *chart = lv_chart_create(parent);
-    lv_obj_set_pos(chart, x, y);
-    lv_obj_set_size(chart, w, h);
-    lv_chart_set_type(chart, LV_CHART_TYPE_BAR);
-    lv_chart_set_point_count(chart, APP_TREND_BARS);
-    lv_chart_set_axis_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-    lv_chart_set_div_line_count(chart, 0, 0);
-    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(chart, 0, 0);
-    lv_obj_set_style_pad_all(chart, 0, 0);
-    lv_obj_set_style_pad_column(chart, 2, 0);
-    lv_obj_set_style_bg_color(chart, lv_color_hex(color), LV_PART_ITEMS);
-    lv_obj_set_style_bg_opa(chart, LV_OPA_COVER, LV_PART_ITEMS);
-    lv_obj_set_style_radius(chart, 1, LV_PART_ITEMS);
-    lv_obj_remove_flag(chart, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_remove_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
-    return chart;
+    spark_t *data = lv_event_get_user_data(e);
+    lv_obj_t *obj = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    if (!data || !obj || !layer) return;
+
+    lv_area_t coords;
+    lv_obj_get_coords(obj, &coords);
+    int w = lv_area_get_width(&coords);
+    int h = lv_area_get_height(&coords);
+    if (w <= 0 || h <= 0) return;
+
+    lv_draw_rect_dsc_t dsc;
+    lv_draw_rect_dsc_init(&dsc);
+    dsc.base.layer = layer;
+    dsc.bg_opa = LV_OPA_COVER;
+    dsc.radius = 1;
+    dsc.border_width = 0;
+
+    int pitch = w / APP_TREND_BARS;
+    if (pitch < 2) pitch = 2;
+    int bar_w = pitch - 2;
+    if (bar_w < 1) bar_w = 1;
+
+    for (int i = 0; i < APP_TREND_BARS; i++) {
+        int value = data->bars[i];
+        int bar_h;
+        if (value == 0xFF) {
+            bar_h = 1;
+            dsc.bg_color = lv_color_hex(C_LINE);
+        } else {
+            bar_h = value * h / 100;
+            if (bar_h < 1) bar_h = 1;
+            dsc.bg_color = lv_color_hex(data->color);
+        }
+        lv_area_t bar;
+        bar.x1 = coords.x1 + i * pitch;
+        if (bar.x1 > coords.x2) break;
+        bar.x2 = bar.x1 + bar_w - 1;
+        if (bar.x2 > coords.x2) bar.x2 = coords.x2;
+        bar.y2 = coords.y2;
+        bar.y1 = coords.y2 - bar_h + 1;
+        lv_draw_rect(layer, &dsc, &bar);
+    }
+}
+
+static lv_obj_t *spark_create(lv_obj_t *parent, int x, int y, spark_t *data)
+{
+    lv_obj_t *obj = lv_obj_create(parent);
+    lv_obj_set_pos(obj, x, y);
+    lv_obj_set_size(obj, SPARK_W, SPARK_H);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(obj, spark_draw, LV_EVENT_DRAW_MAIN, data);
+    return obj;
+}
+
+static void spark_set(lv_obj_t *obj, spark_t *data, const app_trend_t *trend,
+                      const uint8_t *values)
+{
+    app_trend_reduce(values, trend ? trend->count : 0, data->bars, APP_TREND_BARS);
+    if (obj) lv_obj_invalidate(obj);
 }
 
 static lv_obj_t *bar_create(lv_obj_t *parent, int x, int y, int w, int h, uint32_t color)
@@ -376,8 +433,7 @@ static void list_build(void)
     lv_obj_t *key = label_create(s_list_empty, "长按确定进入设置", &app_font_16, C_ACCENT, 0, 124, 240);
     text_center(key);
 
-    lv_obj_t *foot = label_create(scr, "上下切换   确定查看   长按确定设置",
-                                  &app_font_16, C_MUTED, 10, 294, 220);
+    lv_obj_t *foot = label_create(scr, "长按确定设置", &app_font_16, C_MUTED, 10, 294, 220);
     text_center(foot);
 
     s_list = scr;
@@ -484,53 +540,67 @@ static void detail_build(void)
 {
     lv_obj_t *scr = screen_create();
     s_detail_name = label_create(scr, "服务器", &app_font_20, C_INK, 10, 4, 148);
-    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 10, 74);
+    s_detail_batt = label_create(scr, "电量 --", &app_font_16, C_MUTED, 156, 8, 74);
     text_right(s_detail_batt);
-    lv_obj_t *rule = panel_create(scr, 10, 34, 220, 1, C_LINE);
+    lv_obj_t *rule = panel_create(scr, 10, 32, 220, 1, C_LINE);
     lv_obj_set_style_radius(rule, 0, 0);
 
     s_detail_state = label_create(scr, "等待数据", &app_font_16, C_MUTED, 10, 38, 220);
 
-    s_arc_cpu = arc_create(scr, 22, 62, 76);
-    s_arc_mem = arc_create(scr, 142, 62, 76);
-    s_arc_cpu_pct = label_create(scr, "--", &app_font_20, C_INK, 22, 82, 76);
+    // 双圆弧仪表:左右对称,下沿让给指标卡片。
+    s_arc_cpu = arc_create(scr, 22, 60, 76);
+    s_arc_mem = arc_create(scr, 142, 60, 76);
+    s_arc_cpu_pct = label_create(scr, "--", &app_font_20, C_INK, 22, 80, 76);
     text_center(s_arc_cpu_pct);
-    s_arc_mem_pct = label_create(scr, "--", &app_font_20, C_INK, 142, 82, 76);
+    s_arc_mem_pct = label_create(scr, "--", &app_font_20, C_INK, 142, 80, 76);
     text_center(s_arc_mem_pct);
-    lv_obj_t *cpu_name = label_create(scr, "CPU", &app_font_16, C_MUTED, 22, 110, 76);
+    lv_obj_t *cpu_name = label_create(scr, "CPU", &app_font_16, C_MUTED, 22, 108, 76);
     text_center(cpu_name);
-    lv_obj_t *mem_name = label_create(scr, "内存", &app_font_16, C_MUTED, 142, 110, 76);
+    lv_obj_t *mem_name = label_create(scr, "内存", &app_font_16, C_MUTED, 142, 108, 76);
     text_center(mem_name);
 
-    label_create(scr, "磁盘", &app_font_16, C_MUTED, 10, 142, 40);
-    s_detail_disk = label_create(scr, "--", &app_font_16, C_INK, 54, 142, 50);
-    label_create(scr, "磁盘IO", &app_font_16, C_MUTED, 108, 142, 52);
-    s_detail_diskio = label_create(scr, "--", &app_font_16, C_INK, 166, 142, 64);
+    // 指标卡片:2 列 × 4 行,左列标签 + 右对齐数值,避免逐行散排。
+    lv_obj_t *grid = panel_create(scr, 8, 136, 224, 92, C_CARD);
+    for (int i = 0; i < 4; i++) {
+        int y = 4 + i * 22;
+        if (i < 3) {
+            lv_obj_t *rule2 = panel_create(grid, 112, y + 9, 1, 14, C_LINE);
+            lv_obj_set_style_radius(rule2, 0, 0);
+        }
+    }
+    label_create(grid, "磁盘", &app_font_16, C_MUTED, 10, 4, 40);
+    s_detail_disk = label_create(grid, "--", &app_font_16, C_INK, 44, 4, 60);
+    text_right(s_detail_disk);
+    label_create(grid, "磁盘IO", &app_font_16, C_MUTED, 116, 4, 52);
+    s_detail_diskio = label_create(grid, "--", &app_font_16, C_INK, 168, 4, 48);
     text_right(s_detail_diskio);
 
-    label_create(scr, "负载", &app_font_16, C_MUTED, 10, 162, 40);
-    s_detail_load = label_create(scr, "--", &app_font_16, C_INK, 54, 162, 56);
-    label_create(scr, "容器", &app_font_16, C_MUTED, 124, 162, 40);
-    s_detail_docker = label_create(scr, "--", &app_font_16, C_INK, 168, 162, 58);
+    label_create(grid, "负载", &app_font_16, C_MUTED, 10, 26, 40);
+    s_detail_load = label_create(grid, "--", &app_font_16, C_INK, 44, 26, 60);
+    text_right(s_detail_load);
+    label_create(grid, "容器", &app_font_16, C_MUTED, 116, 26, 52);
+    s_detail_docker = label_create(grid, "--", &app_font_16, C_INK, 168, 26, 48);
+    text_right(s_detail_docker);
 
-    label_create(scr, "下行", &app_font_16, C_MUTED, 10, 182, 40);
-    s_detail_rx = label_create(scr, "--", &app_font_16, C_INK, 54, 182, 66);
-    label_create(scr, "上行", &app_font_16, C_MUTED, 124, 182, 40);
-    s_detail_tx = label_create(scr, "--", &app_font_16, C_INK, 168, 182, 58);
+    label_create(grid, "下行", &app_font_16, C_MUTED, 10, 48, 40);
+    s_detail_rx = label_create(grid, "--", &app_font_16, C_INK, 44, 48, 60);
+    text_right(s_detail_rx);
+    label_create(grid, "上行", &app_font_16, C_MUTED, 116, 48, 52);
+    s_detail_tx = label_create(grid, "--", &app_font_16, C_INK, 168, 48, 48);
+    text_right(s_detail_tx);
 
-    label_create(scr, "运行时长", &app_font_16, C_MUTED, 10, 202, 72);
-    s_detail_uptime = label_create(scr, "--", &app_font_16, C_INK, 86, 202, 140);
+    label_create(grid, "运行时长", &app_font_16, C_MUTED, 10, 70, 64);
+    s_detail_uptime = label_create(grid, "--", &app_font_16, C_INK, 78, 70, 138);
+    text_right(s_detail_uptime);
 
-    // 24 小时趋势：两行各 20px 行高,不能靠得更近,否则文字会重叠。
-    label_create(scr, "CPU", &app_font_16, C_MUTED, 6, 224, 30);
-    s_chart_cpu = chart_create(scr, 36, 228, 194, 10, C_ACCENT);
-    s_ser_cpu = lv_chart_add_series(s_chart_cpu, lv_color_hex(C_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
-    label_create(scr, "内存", &app_font_16, C_MUTED, 6, 244, 30);
-    s_chart_mem = chart_create(scr, 36, 248, 194, 10, C_WARN);
-    s_ser_mem = lv_chart_add_series(s_chart_mem, lv_color_hex(C_WARN), LV_CHART_AXIS_PRIMARY_Y);
+    // 24 小时趋势:自绘柱状图,两行各 20px 行高,不能靠得更近,否则文字会重叠。
+    label_create(scr, "CPU", &app_font_16, C_MUTED, 10, 232, 34);
+    s_spark_cpu = spark_create(scr, 48, 236, &s_spark_cpu_data);
+    label_create(scr, "内存", &app_font_16, C_MUTED, 10, 254, 34);
+    s_spark_mem = spark_create(scr, 48, 258, &s_spark_mem_data);
 
     lv_obj_t *foot = label_create(scr, "确定刷新   长按确定返回", &app_font_16, C_MUTED,
-                                  10, 266, 220);
+                                  10, 286, 220);
     text_center(foot);
 
     s_chart_index = -1;
@@ -538,16 +608,22 @@ static void detail_build(void)
     s_detail = scr;
 }
 
-static void trend_apply(lv_obj_t *chart, lv_chart_series_t *series,
-                        const app_trend_t *trend, const uint8_t *values)
+static void set_rate(lv_obj_t *label, uint32_t bps, bool known)
 {
-    uint8_t bars[APP_TREND_BARS];
-    uint16_t count = trend ? trend->count : 0;
-    app_trend_reduce(values, count, bars, APP_TREND_BARS);
-    for (uint16_t i = 0; i < APP_TREND_BARS; i++) {
-        lv_chart_set_series_value_by_id(chart, series, i, bars[i] == 0xFF ? 0 : bars[i]);
+    if (!known) {
+        text_set(label, "--");
+        return;
     }
-    lv_chart_refresh(chart);
+    char buf[24];
+    app_fmt_rate(buf, sizeof(buf), bps);
+    // 去掉单位前的空格,把 "1.2 M/s" 压成 "1.2M/s",窄列也放得下。
+    char compact[24];
+    size_t j = 0;
+    for (size_t i = 0; buf[i] && j + 1 < sizeof(compact); i++) {
+        if (buf[i] != ' ') compact[j++] = buf[i];
+    }
+    compact[j] = 0;
+    text_set(label, compact);
 }
 
 static void set_arc(lv_obj_t *arc, lv_obj_t *label, int value)
@@ -604,12 +680,7 @@ static void detail_apply(const app_config_t *cfg, int selected,
 
     char tmp[24];
     set_percent(s_detail_disk, have ? status->disk : -1);
-    if (have) {
-        app_fmt_rate(tmp, sizeof(tmp), status->disk_io_bps);
-        text_set(s_detail_diskio, tmp);
-    } else {
-        text_set(s_detail_diskio, "--");
-    }
+    set_rate(s_detail_diskio, have ? status->disk_io_bps : 0, have);
     app_fmt_load(tmp, sizeof(tmp), have ? status->load1_x100 : -1);
     text_set(s_detail_load, tmp);
 
@@ -625,10 +696,8 @@ static void detail_apply(const app_config_t *cfg, int selected,
     }
 
     if (have) {
-        app_fmt_rate(tmp, sizeof(tmp), status->net_rx_bps);
-        text_set(s_detail_rx, tmp);
-        app_fmt_rate(tmp, sizeof(tmp), status->net_tx_bps);
-        text_set(s_detail_tx, tmp);
+        set_rate(s_detail_rx, status->net_rx_bps, true);
+        set_rate(s_detail_tx, status->net_tx_bps, true);
         app_fmt_uptime(tmp, sizeof(tmp), status->uptime_s);
         text_set(s_detail_uptime, tmp);
     } else {
@@ -642,15 +711,9 @@ static void detail_apply(const app_config_t *cfg, int selected,
         (chart_valid && status->fetched_ms != s_chart_fetched_ms)) {
         s_chart_index = selected;
         s_chart_fetched_ms = chart_valid ? status->fetched_ms : 0;
-        if (chart_valid && trend) {
-            trend_apply(s_chart_cpu, s_ser_cpu, trend, trend->cpu);
-            trend_apply(s_chart_mem, s_ser_mem, trend, trend->mem);
-        } else {
-            app_trend_t empty;
-            memset(&empty, 0, sizeof(empty));
-            trend_apply(s_chart_cpu, s_ser_cpu, &empty, empty.cpu);
-            trend_apply(s_chart_mem, s_ser_mem, &empty, empty.mem);
-        }
+        const app_trend_t *use = chart_valid ? trend : NULL;
+        spark_set(s_spark_cpu, &s_spark_cpu_data, use, use ? use->cpu : NULL);
+        spark_set(s_spark_mem, &s_spark_mem_data, use, use ? use->mem : NULL);
     }
 }
 
