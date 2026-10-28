@@ -24,7 +24,7 @@ ESP32 ── HTTPS ──> Caddy/Nginx ── HTTP ──> 127.0.0.1:8899 ──
 
 ## 环境要求
 
-- Linux，Python 3.8 或更高版本。
+- Linux，Python 3.6 或更高版本（CentOS 7 自带的 3.6.8 可直接运行）。
 - 建议有 `systemd`；没有也能手动运行 HTTP 服务。
 - 可选：已开启 API 的 1Panel 2.x 或宝塔 9.x。
 - 不依赖任何第三方 Python 包。
@@ -73,6 +73,53 @@ sudo python3 ai_passport_agent.py install \
 ### 纯本机模式
 
 `--panel local` 完全跳过面板，只报告 `/proc` 指标。
+
+## 图形化安装（1Panel / 宝塔）
+
+不想敲命令时，用面板自带的**文件管理 + 终端 + 网站反向代理**就能装完，
+不需要手写 nginx 配置。
+
+| 步骤 | 1Panel | 宝塔 |
+| --- | --- | --- |
+| 1. 上传脚本 | 主机 → 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py` | 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py` |
+| 2. 执行安装 | 主机 → 终端，粘贴下面 1Panel 的命令 | 左侧「终端」，粘贴下面宝塔的命令 |
+| 3. 确认存活 | `curl -s http://127.0.0.1:8899/healthz` 返回 `{"ok":true,...}` | 同上 |
+| 4. 建站 | 网站 → 创建网站 → 类型选「静态」，域名填 `monitor.example.com` | 网站 → 添加站点 → PHP 版本选「纯静态」，域名填 `monitor.example.com` |
+| 5. 反向代理 | 网站设置 → 反向代理 → 添加：代理地址 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加：目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，缓存关闭 |
+| 6. 证书 | 网站 → HTTPS → Let's Encrypt 申请 → 打开「强制 HTTPS」 | SSL → Let's Encrypt 申请 → 打开「强制 HTTPS」 |
+| 7. 放行端口 | 主机 → 防火墙，放行 80、443 | 安全，放行 80、443 |
+
+第 2 步的命令（把密钥换成面板里复制的值）：
+
+```bash
+# 1Panel（密钥在 面板设置 → API 接口）
+sudo python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel 1panel --api-key '<API 密钥>'
+
+# 宝塔（密钥在 面板设置 → API 接口）
+sudo python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel baota --api-key '<API 密钥>'
+```
+
+安装脚本会创建并启动 systemd 服务 `ai-passport-agent`，随机生成访问
+Token 并写入 `/etc/ai-passport/agent.json`（权限 `0600`）。
+
+面板里没有「终端」入口时，改用 SSH 执行同样的命令；命令在任何目录都能跑，
+脚本会用绝对路径安装。
+
+装完用浏览器打开 `https://monitor.example.com/status` 会看到
+`{"ok":false,"error":"unauthorized"}`，这是**正常现象**：浏览器不会带
+`X-Api-Token`。真正的验证在终端里：
+
+```bash
+TOKEN=$(sudo python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
+curl -s -H "X-Api-Token: $TOKEN" http://127.0.0.1:8899/status
+```
+
+设备配网页里填 `https://monitor.example.com/status` 和同一个 Token 即可。
+
+图形化卸载：面板终端执行 `sudo python3 /opt/ai-passport/ai_passport_agent.py uninstall --purge`，
+再在网站列表里删除那个站点。
 
 ## 用 HTTPS 对外发布
 

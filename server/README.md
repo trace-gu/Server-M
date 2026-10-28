@@ -26,7 +26,7 @@ trend keeps accumulating while the device screen is off.
 
 ## Requirements
 
-- Linux with Python 3.8 or newer.
+- Linux with Python 3.6 or newer (the 3.6.8 shipped with CentOS 7 works).
 - `systemd` recommended; the HTTP server still runs without it.
 - Optional: 1Panel 2.x or Baota 9.x with its API enabled.
 - No third-party Python packages.
@@ -76,6 +76,56 @@ If the panel is not on loopback, add `--panel-url http://10.0.0.5:8090`.
 ### Manual mode
 
 `--panel local` skips the panel entirely and reports `/proc` metrics only.
+
+## GUI install (1Panel / Baota)
+
+You can finish the whole install with the panel's own **file manager, terminal,
+and website reverse proxy**; no hand-written nginx config is needed.
+
+| Step | 1Panel | Baota |
+| --- | --- | --- |
+| 1. Upload the script | Hosts → Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` | Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` |
+| 2. Install | Hosts → Terminal, paste the 1Panel command below | Terminal, paste the Baota command below |
+| 3. Check liveness | `curl -s http://127.0.0.1:8899/healthz` returns `{"ok":true,...}` | Same |
+| 4. Create a site | Websites → Create → type "static", domain `monitor.example.com` | Websites → Add site → PHP "static", domain `monitor.example.com` |
+| 5. Reverse proxy | Site settings → Reverse proxy → add: target `http://127.0.0.1:8899` | Settings → Reverse proxy → add: target URL `http://127.0.0.1:8899`, send domain `$host`, cache off |
+| 6. Certificate | Websites → HTTPS → request Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → force HTTPS |
+| 7. Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
+
+The step 2 commands (replace the key with the one copied from the panel):
+
+```bash
+# 1Panel (key: Panel settings → API interface)
+sudo python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel 1panel --api-key '<API key>'
+
+# Baota (key: Panel settings → API interface)
+sudo python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel baota --api-key '<API key>'
+```
+
+The installer creates and starts the `ai-passport-agent` systemd service,
+generates a random access token, and writes it to
+`/etc/ai-passport/agent.json` with mode `0600`.
+
+If the panel has no terminal entry, run the same command over SSH; it works
+from any directory because the installer uses absolute paths.
+
+Opening `https://monitor.example.com/status` in a browser shows
+`{"ok":false,"error":"unauthorized"}`. That is **expected**: browsers do not
+send `X-Api-Token`. Verify from a terminal instead:
+
+```bash
+TOKEN=$(sudo python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
+curl -s -H "X-Api-Token: $TOKEN" http://127.0.0.1:8899/status
+```
+
+Use `https://monitor.example.com/status` and the same token in the device
+portal.
+
+GUI uninstall: run
+`sudo python3 /opt/ai-passport/ai_passport_agent.py uninstall --purge` in the
+panel terminal, then delete the site from the website list.
 
 ## Publish over HTTPS
 
