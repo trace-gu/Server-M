@@ -182,6 +182,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
             unlock_info();
             s_fail_count++;
             int delay_ms = AP_RETRY_MS;
+            if (s_fail_count >= 3 && s_attempt >= 0 && s_attempt < APP_MAX_WIFI) {
+                // 连续失败说明缓存的信道已经失效(路由器自动换信道),
+                // 清掉它,下一次改为全信道扫描。
+                s_channels[s_attempt] = 0;
+            }
             if (s_fail_count >= 2 && saved_wifi_count() > 1) {
                 s_attempt = (s_attempt + 1) % saved_wifi_count();
                 s_fail_count = 0;
@@ -378,6 +383,31 @@ void app_wifi_stop_ap(void)
         s_fail_count = 0;
         schedule_retry(300);
     }
+}
+
+void app_wifi_kick(void)
+{
+    if (!s_wifi_started) return;
+    // 配网热点开着时不要打断:APSTA 下断开会连带热点抖动。
+    if (s_ap_active) return;
+
+    bool connected;
+    lock_info();
+    connected = s_state == APP_WIFI_CONNECTED;
+    unlock_info();
+    if (connected) {
+        // 已连着就不用动;顺手确保对时任务在跑(长时间待机后时钟可能漂移)。
+        start_sntp();
+        return;
+    }
+    if (saved_wifi_count() <= 0) return;
+
+    // 清零退避并立即重连:熄屏时可能已经因为连续失败进入 10 秒退避,
+    // 唤醒后不应再等这一轮。
+    s_fail_count = 0;
+    if (s_retry_timer) esp_timer_stop(s_retry_timer);
+    ESP_LOGI(TAG, "唤醒后立即重连 Wi-Fi");
+    connect_attempt();
 }
 
 void app_wifi_set_low_power(bool on)

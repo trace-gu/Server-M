@@ -60,6 +60,7 @@ static bool s_wake_swallow;
 static int64_t s_last_input_ms;
 static int64_t s_attempt_ms[APP_MAX_SERVERS];   // 每台上一次发起请求的时间
 static bool s_force_refresh;
+static int64_t s_last_keepalive_ms;             // 熄屏保活请求的上一次时间
 static uint8_t s_applied_brightness;
 static app_config_t s_ui_cfg;
 
@@ -214,6 +215,29 @@ static void reset_attempts(void)
     memset(s_attempt_ms, 0, sizeof(s_attempt_ms));
 }
 
+// 熄屏后完全停止轮询会带来一个副作用:路由器通常几十秒到几分钟就认为
+// 这台设备已经空闲,几个小时后基本都把它踢下线,唤醒时只能重新扫描+DHCP,
+// 看起来就是"唤醒好久才连上"。这里每 5 分钟发一次轻量请求,保持关联存活。
+#define KEEPALIVE_MS (5 * 60 * 1000)
+
+static void maybe_keepalive(int64_t now)
+{
+    if (s_screen_on) return;
+    if (app_portal_active()) return;   // 配网页开着时手机流量本身就在保活
+    if (s_last_keepalive_ms != 0 && now - s_last_keepalive_ms < KEEPALIVE_MS) return;
+
+    app_wifi_info_t wifi;
+    app_wifi_get_info(&wifi);
+    s_last_keepalive_ms = now;
+    if (wifi.state != APP_WIFI_CONNECTED) {
+        // 熄屏期间被路由器踢下线的话,在这里就重连,别等唤醒才补救。
+        app_wifi_kick();
+        return;
+    }
+    if (app_net_busy() || s_ui_cfg.server_count <= 0) return;
+    (void)app_net_request(s_sel);
+}
+
 static void enter_list(void)
 {
     s_view = APP_VIEW_LIST;
@@ -259,22 +283,36 @@ static void enter_wifi(void)
 
 static void start_portal(void)
 {
+    // 先放弃在途的 HTTPS 请求:httpd 任务要 20 KB 栈,与 TLS 握手抢堆时
+    // httpd_start 会失败,表现出来就是"按确定没反应"。
+    app_net_cancel();
     esp_err_t err = app_portal_start();
     if (err != ESP_OK) {
+        // 网络任务收尾后才释放握手用的缓冲区,稍等一下再补一次。
+        vTaskDelay(pdMS_TO_TICKS(400));
+        err = app_portal_start();
+    }
+    if (err != ESP_OK) {
         ESP_LOGE(TAG, "启动手机配网失败: %s", esp_err_to_name(err));
+        if (bsp_lvgl_lock(200)) {
+            app_ui_portal_error();
+            bsp_lvgl_unlock();
+        }
+        render_view(false);
         return;
     }
     s_view = APP_VIEW_PORTAL;
     s_last_input_ms = now_ms();
-    app_net_cancel();
     render_view(true);
 }
 
 static void exit_portal(void)
 {
-    app_portal_stop();
     (void)app_portal_take_config_changed();
+    // 先切回设置页再关闭服务:httpd_stop 会等手机侧连接收尾,
+    // 先返回界面才不会让人觉得"按了确定没反应"。
     enter_settings();
+    app_portal_stop();
 }
 
 static void switch_server(int delta)
@@ -376,12 +414,18 @@ static void screen_off(void)
 
 static void wake_screen(void)
 {
+    const int64_t now = now_ms();
     s_screen_on = true;
-    s_last_input_ms = now_ms();
+    s_last_input_ms = now;
     s_applied_brightness = 0;   // 让 render_view 重新套用配置里的亮度
     app_wifi_set_low_power(false);
+    // 熄屏几个小时后路由器可能已经把这个空闲客户端踢下线,
+    // 这里立刻重连,不再等断线退避(最长 10 秒)走完。
+    app_wifi_kick();
     reset_attempts();
+    s_last_keepalive_ms = now;
     render_view(false);
+    maybe_request_refresh(now);
     ESP_LOGI(TAG, "屏幕唤醒");
 }
 
@@ -444,7 +488,10 @@ static void handle_click(bsp_btn_t btn)
             case 1: cycle_brightness(); break;
             case 2: cycle_refresh(); break;
             case 3: cycle_screen_off(); break;
-            case 4: start_portal(); break;
+            case 4:
+                if (app_portal_active()) exit_portal();
+                else start_portal();
+                break;
             case 5: break;
             default: enter_list(); break;
             }
@@ -459,12 +506,19 @@ static void handle_click(bsp_btn_t btn)
             if (s_wifi_sel < s_ui_cfg.wifi_count) s_wifi_sel++;
             render_view(false);
         } else if (btn == BSP_BTN_OK) {
-            if (s_wifi_sel == 0) start_portal();
+            if (s_wifi_sel == 0) {
+                if (app_portal_active()) exit_portal();
+                else start_portal();
+            }
             else activate_wifi(s_wifi_sel - 1);
         }
         break;
 
     case APP_VIEW_PORTAL:
+        // 配网页就是"开启"状态:短按确定关闭配网,手机随即无法再访问。
+        if (btn == BSP_BTN_OK) exit_portal();
+        break;
+
     default:
         break;
     }
@@ -594,6 +648,8 @@ static void app_task(void *arg)
             }
             maybe_request_refresh(now);
             maybe_screen_off(now);
+        } else {
+            maybe_keepalive(now);
         }
 
         vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));

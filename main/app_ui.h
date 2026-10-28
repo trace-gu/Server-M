@@ -49,3 +49,6 @@ void app_ui_wifi_update(const app_config_t *cfg, const app_wifi_info_t *wifi, in
 void app_ui_portal_show(const char *ssid, const char *pass, const char *url,
                         uint32_t elapsed_s, bool ap_active);
 void app_ui_portal_update(uint32_t elapsed_s, bool ap_active);
+
+// 配网启动失败时在设置页第 4 行短暂显示"启动失败",避免按了确定却毫无反馈。
+void app_ui_portal_error(void);

@@ -6,6 +6,7 @@
 #include "app_ui.h"
 
 #include "app_model.h"
+#include "app_portal.h"
 
 #include "lvgl.h"
 #include "src/draw/lv_draw_arc.h"   // lvgl.h 不导出 arc 绘制描述符
@@ -98,6 +99,8 @@ static lv_obj_t *s_portal_pass;
 static lv_obj_t *s_portal_url;
 static lv_obj_t *s_portal_hint;
 static lv_obj_t *s_portal_elapsed;
+// 配网启动失败后在这段时间内把"开启"改成"启动失败",给用户一个明确反馈。
+static int64_t s_portal_err_until;
 
 static const char *const SET_LABELS[7] = {
     "Wi-Fi 网络",
@@ -994,7 +997,12 @@ static void settings_apply(const app_config_t *cfg, const app_wifi_info_t *wifi,
         snprintf(buf, sizeof(buf), "%u 秒", (unsigned)cfg->screen_off_s);
         text_set(s_set_val[3], buf);
     }
-    text_set(s_set_val[4], "开启");
+    if (esp_timer_get_time() / 1000 < s_portal_err_until) {
+        text_set(s_set_val[4], "启动失败");
+        lv_obj_set_style_text_color(s_set_val[4], lv_color_hex(C_CRIT), 0);
+    } else {
+        text_set(s_set_val[4], app_portal_active() ? "已开启" : "开启");
+    }
     if (battery_soc >= 0) snprintf(buf, sizeof(buf), "电量 %d%%", battery_soc);
     else snprintf(buf, sizeof(buf), "电量 --");
     text_set(s_set_val[5], buf);
@@ -1068,7 +1076,12 @@ static void wifi_apply(const app_config_t *cfg, const app_wifi_info_t *wifi, int
         lv_obj_set_style_text_color(s_wifi_val[i], lv_color_hex(sel ? C_ACCENT : C_MUTED), 0);
 
         if (i == 0) {
-            text_set(s_wifi_val[i], "开启");
+            if (esp_timer_get_time() / 1000 < s_portal_err_until) {
+                text_set(s_wifi_val[i], "启动失败");
+                lv_obj_set_style_text_color(s_wifi_val[i], lv_color_hex(C_CRIT), 0);
+            } else {
+                text_set(s_wifi_val[i], app_portal_active() ? "已开启" : "开启");
+            }
             continue;
         }
         int index = i - 1;
@@ -1101,7 +1114,7 @@ void app_ui_wifi_update(const app_config_t *cfg, const app_wifi_info_t *wifi, in
 static void portal_build(void)
 {
     lv_obj_t *scr = screen_create();
-    header_add(scr, "手机配网", "长按确定退出");
+    header_add(scr, "手机配网", "长按确定返回");
 
     lv_obj_t *card = panel_create(scr, 10, 50, 220, 190, C_CARD);
     s_portal_ssid_title = label_create(card, "热点名称", &app_font_16, C_MUTED, 16, 10, 188);
@@ -1118,7 +1131,7 @@ static void portal_build(void)
     lv_obj_t *hint2 = label_create(scr, "服务器和 Wi-Fi 都可添加", &app_font_16, C_MUTED,
                                    10, 272, 220);
     text_center(hint2);
-    lv_obj_t *exit = label_create(scr, "长按确定退出配网", &app_font_16, C_ACCENT,
+    lv_obj_t *exit = label_create(scr, "确定键关闭配网", &app_font_16, C_ACCENT,
                                   10, 298, 220);
     text_center(exit);
     s_portal = scr;
@@ -1128,10 +1141,17 @@ static void portal_apply(uint32_t elapsed_s, bool ap_active)
 {
     if (!s_portal) return;
     char buf[48];
-    if (ap_active) snprintf(buf, sizeof(buf), "已开启 %u 秒", (unsigned)elapsed_s);
-    else snprintf(buf, sizeof(buf), "配网热点未开启");
+    // 两种模式都是"已开启":热点模式手机连 AI-Passport-xx,
+    // STA 模式手机连着同一个 Wi-Fi 直接访问局域网地址。
+    snprintf(buf, sizeof(buf), ap_active ? "热点已开启 %u 秒" : "局域网已开启 %u 秒",
+             (unsigned)elapsed_s);
     text_set(s_portal_elapsed, buf);
-    lv_obj_set_style_text_color(s_portal_elapsed, lv_color_hex(ap_active ? C_OK : C_CRIT), 0);
+    lv_obj_set_style_text_color(s_portal_elapsed, lv_color_hex(C_OK), 0);
+}
+
+void app_ui_portal_error(void)
+{
+    s_portal_err_until = esp_timer_get_time() / 1000 + 5000;
 }
 
 void app_ui_portal_show(const char *ssid, const char *pass, const char *url,
@@ -1158,5 +1178,10 @@ void app_ui_portal_show(const char *ssid, const char *pass, const char *url,
 
 void app_ui_portal_update(uint32_t elapsed_s, bool ap_active)
 {
+    if (!s_portal) return;
+    // Wi-Fi 断线重连后 IP 可能变化,这里跟着刷新手机要访问的地址。
+    char buffer[40];
+    snprintf(buffer, sizeof(buffer), "http://%s", app_portal_ip());
+    text_set(s_portal_url, buffer);
     portal_apply(elapsed_s, ap_active);
 }
