@@ -14,8 +14,6 @@
 * 自带 install / uninstall / test / status / run 子命令。
 """
 
-from __future__ import annotations
-
 import argparse
 import hashlib
 import hmac
@@ -24,19 +22,27 @@ import os
 import re
 import shutil
 import socket
+import socketserver
 import ssl
 import subprocess
 import sys
 import threading
 import time
 from collections import deque
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import Dict, Optional, Tuple
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
-VERSION = "1.0.1"
+try:
+    from http.server import ThreadingHTTPServer  # novermin
+except ImportError:  # Python 3.6 没有 ThreadingHTTPServer
+    class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+VERSION = "1.0.2"
 
 INSTALL_DIR = Path("/opt/ai-passport")
 CONFIG_DIR = Path("/etc/ai-passport")
@@ -220,7 +226,7 @@ def parse_baota(total: dict, disk, network: dict, load: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 本机 /proc、/sys 指标
 # ---------------------------------------------------------------------------
-def read_cpu_times() -> tuple[int, int] | None:
+def read_cpu_times() -> Optional[Tuple[int, int]]:
     try:
         with open("/proc/stat", "r", encoding="ascii") as fh:
             line = fh.readline()
@@ -235,7 +241,7 @@ def read_cpu_times() -> tuple[int, int] | None:
 
 
 def read_meminfo() -> dict:
-    info: dict[str, int] = {}
+    info = {}  # type: Dict[str, int]
     try:
         with open("/proc/meminfo", "r", encoding="ascii") as fh:
             for line in fh:
@@ -248,7 +254,7 @@ def read_meminfo() -> dict:
     return info
 
 
-def read_net_bytes() -> tuple[int, int] | None:
+def read_net_bytes() -> Optional[Tuple[int, int]]:
     try:
         with open("/proc/net/dev", "r", encoding="ascii") as fh:
             lines = fh.readlines()[2:]
@@ -274,7 +280,7 @@ def _base_device(name: str) -> str:
     return re.sub(r"\d+$", "", name)
 
 
-def read_disk_io() -> tuple[int, int] | None:
+def read_disk_io() -> Optional[Tuple[int, int]]:
     """返回 (累计读字节, 累计写字节)。只统计整块物理盘,避免分区重复计数。"""
     skip = ("loop", "ram", "zram", "dm-", "md", "sr", "fd")
     try:
@@ -282,7 +288,7 @@ def read_disk_io() -> tuple[int, int] | None:
             lines = fh.readlines()
     except OSError:
         return None
-    totals: dict[str, tuple[int, int]] = {}
+    totals = {}  # type: Dict[str, Tuple[int, int]]
     for line in lines:
         parts = line.split()
         if len(parts) < 14:
@@ -308,7 +314,7 @@ def read_uptime() -> int:
         return 0
 
 
-def read_temperature() -> float | None:
+def read_temperature() -> Optional[float]:
     best = None
     for path in Path("/sys/class/thermal").glob("thermal_zone*/temp"):
         try:
@@ -375,7 +381,7 @@ class LocalMetrics:
         self._disk_r_bps = 0
         self._disk_w_bps = 0
         self._trend_step = max(60, int(trend_step))
-        self._trend: deque[list] = deque(maxlen=TREND_POINTS)
+        self._trend = deque(maxlen=TREND_POINTS)
         self._last_trend_ts = 0.0
         self._load_trend()
         self._sample(force=True)
@@ -596,7 +602,7 @@ def fetch_baota(cfg: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 可选采集：Docker / 证书到期
 # ---------------------------------------------------------------------------
-def docker_counts(cache: dict, lock: threading.Lock) -> tuple[int, int, int]:
+def docker_counts(cache: dict, lock: threading.Lock) -> Tuple[int, int, int]:
     """返回 (运行中数量, 容器总数, 异常数量)。
 
     设备列表/详情显示 ``运行中/总数``;异常数量只用于诊断。
@@ -611,7 +617,8 @@ def docker_counts(cache: dict, lock: threading.Lock) -> tuple[int, int, int]:
         try:
             out = subprocess.run(
                 [binary, "ps", "-a", "--format", "{{.State}}"],
-                capture_output=True, text=True, timeout=3,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=3,
             )
             if out.returncode == 0:
                 states = [line.strip() for line in out.stdout.splitlines() if line.strip()]
@@ -933,7 +940,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="AI Passport 服务器状态中转（1Panel / 宝塔 / 本机指标）")
     parser.add_argument("--version", action="version", version=VERSION)
-    sub = parser.add_subparsers(dest="command", required=True)
+    # 3.6 的 add_subparsers 不接受 required 关键字，赋值同样生效。
+    sub = parser.add_subparsers(dest="command")
+    sub.required = True
 
     install = sub.add_parser("install", help="安装并启动 systemd 服务")
     install.add_argument("--bind", default="", help="监听地址，默认 127.0.0.1")
