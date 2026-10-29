@@ -215,10 +215,10 @@ static void reset_attempts(void)
     memset(s_attempt_ms, 0, sizeof(s_attempt_ms));
 }
 
-// 熄屏后完全停止轮询会带来一个副作用:路由器通常几十秒到几分钟就认为
-// 这台设备已经空闲,几个小时后基本都把它踢下线,唤醒时只能重新扫描+DHCP,
-// 看起来就是"唤醒好久才连上"。这里每 5 分钟发一次轻量请求,保持关联存活。
-#define KEEPALIVE_MS (5 * 60 * 1000)
+// 熄屏后完全停止轮询会带来一个副作用:路由器会把长时间没有数据往来的客户端
+// 踢下线,唤醒时只能重新扫描+DHCP,看起来就是"唤醒好久才连上"。
+// 每 90 秒发一次轻量请求,既保持关联存活,又不会明显抬高待机电流。
+#define KEEPALIVE_MS (90 * 1000)
 
 static void maybe_keepalive(int64_t now)
 {
@@ -407,8 +407,6 @@ static void screen_off(void)
     bsp_display_backlight(0);
     s_applied_brightness = 0;
     app_net_cancel();
-    // 配网页开着的时候不要降省电档,否则手机的请求会被拖慢。
-    app_wifi_set_low_power(!app_portal_active());
     ESP_LOGI(TAG, "熄屏，停止轮询");
 }
 
@@ -418,7 +416,6 @@ static void wake_screen(void)
     s_screen_on = true;
     s_last_input_ms = now;
     s_applied_brightness = 0;   // 让 render_view 重新套用配置里的亮度
-    app_wifi_set_low_power(false);
     // 熄屏几个小时后路由器可能已经把这个空闲客户端踢下线,
     // 这里立刻重连,不再等断线退避(最长 10 秒)走完。
     app_wifi_kick();

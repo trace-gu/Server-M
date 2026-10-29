@@ -261,6 +261,9 @@ esp_err_t app_wifi_init(void)
     e = esp_wifi_start();
     if (e != ESP_OK) return e;
     s_wifi_started = true;
+    // 固定 MIN_MODEM:射频在 DTIM 之间关闭,CPU 不受影响。
+    // 不用 MAX_MODEM——它会拉长监听间隔,漏信标后容易被路由器踢下线,
+    // 表现为"熄屏久了唤醒要等很久才连上"。
     esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
     uint8_t mac[6] = {0};
@@ -408,17 +411,6 @@ void app_wifi_kick(void)
     if (s_retry_timer) esp_timer_stop(s_retry_timer);
     ESP_LOGI(TAG, "唤醒后立即重连 Wi-Fi");
     connect_attempt();
-}
-
-void app_wifi_set_low_power(bool on)
-{
-    if (!s_wifi_started) return;
-    // 配网热点开着时保持 MIN_MODEM：手机的配网请求要被及时响应。
-    if (on && s_ap_active) return;
-    esp_err_t err = esp_wifi_set_ps(on ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "切换 Wi-Fi 省电模式失败: %s", esp_err_to_name(err));
-    }
 }
 
 bool app_wifi_ap_active(void)

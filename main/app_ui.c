@@ -379,7 +379,8 @@ static void wifi_icon_update(lv_obj_t *obj, wifi_icon_t *data, const app_wifi_in
             level = wifi->configured ? 2 : 0;
             break;
         case APP_WIFI_FAILED:
-            color = C_CRIT;
+            // 失败后会自动重试,用黄色"重连中"而不是红色报错,避免频繁闪烁。
+            color = C_WARN;
             level = 1;
             break;
         default:
@@ -953,7 +954,7 @@ static const char *wifi_state_cn(const app_wifi_info_t *wifi)
     switch (wifi->state) {
     case APP_WIFI_CONNECTED: return "已连接";
     case APP_WIFI_CONNECTING: return "连接中";
-    case APP_WIFI_FAILED: return "连接失败";
+    case APP_WIFI_FAILED: return "重连中";
     default: return "未连接";
     }
 }

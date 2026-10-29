@@ -43,8 +43,6 @@ const char *app_wifi_ap_ssid(void);
 const char *app_wifi_ap_password(void);
 bool app_wifi_ready(void);
 void app_wifi_note_config_changed(void);
-// 熄屏后放宽 Wi-Fi 省电档以降低待机电流，亮屏时恢复，避免刷新请求被省电拖慢。
-void app_wifi_set_low_power(bool on);
 // 亮屏唤醒时调用：未连接就立刻重连（清零断线退避），已连接则不动。
 // 长时间熄屏后路由器常会把空闲客户端踢下线，唤醒时主动连一次省掉整轮退避等待。
 void app_wifi_kick(void);
