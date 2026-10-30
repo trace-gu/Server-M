@@ -440,12 +440,24 @@ bool app_wifi_ready(void)
 void app_wifi_note_config_changed(void)
 {
     if (!s_wifi_started) return;
-    s_attempt = 0;
+    int active = 0;
     app_config_lock();
-    s_attempt = app_config_get()->active_wifi;
+    active = app_config_get()->active_wifi;
     app_config_unlock();
-    s_fail_count = 0;
-    schedule_retry(300);
+
+    if (saved_wifi_count() <= 0) {
+        // 网络被删光了:停掉已有的连接尝试,别继续报错。
+        s_fail_count = 0;
+        if (s_retry_timer) esp_timer_stop(s_retry_timer);
+        esp_wifi_disconnect();
+        set_state(APP_WIFI_OFF);
+        return;
+    }
+    // 关键:必须像"设置页点连接"那样先断开旧的连接尝试,再按新配置重连。
+    // 只排队重试的话,驱动可能还卡在上一个 SSID 的握手(esp_wifi_connect
+    // 返回 ESP_ERR_WIFI_CONN 被当成"正在连接"),新配置要等旧尝试失败才生效,
+    // 表现就是配网保存后连不上,得手动再点一次。
+    app_wifi_connect_saved(active);
 }
 
 int app_wifi_scan(app_wifi_scan_item_t *out, int max)

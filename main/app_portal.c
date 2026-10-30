@@ -198,10 +198,15 @@ static esp_err_t wifi_post(httpd_req_t *req)
             cJSON_Delete(root);
             return send_error(req, "缺少 Wi-Fi 名称");
         }
-        if (app_wifi_add(&cfg, ssid, pass ? pass : "") < 0) {
+        int added = app_wifi_add(&cfg, ssid, pass ? pass : "");
+        if (added < 0) {
             cJSON_Delete(root);
             return send_error(req, "Wi-Fi 无效、密码不足 8 位或列表已满");
         }
+        // 网页上"保存网络"的提示是"设备会尝试连接",所以必须把新网络设为当前网络。
+        // 否则 active_wifi 还指着旧网络,配网后设备一直去连旧的,看起来就是
+        // "刚配完连不上,要在设置页再点一次连接"。
+        app_wifi_set_active(&cfg, added);
     } else if (action && strcmp(action, "delete") == 0) {
         int index = json_int(root, "index", -1);
         if (!app_wifi_remove(&cfg, index)) {
