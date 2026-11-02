@@ -42,7 +42,7 @@ Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。�
 
 | 步骤 | 1Panel | 宝塔 |
 | --- | --- | --- |
-| 1. 上传脚本 | 主机 → 文件 → `/opt` → 新建目录 `ai-passport` → 上传仓库中的 `server/ai_passport_agent.py` | 文件 → `/opt` → 新建目录 `ai-passport` → 上传同一文件 |
+| 1. 上传脚本 | 主机 → 文件 → `/opt` → 新建目录 `ai-passport` → 上传仓库中的 `server/ai_passport_agent.py`（也可从 Releases 下载） | 文件 → `/opt` → 新建目录 `ai-passport` → 上传同一文件 |
 | 2. 开启 API | 面板设置 → API 接口 → 开启 → 复制密钥 | 面板设置 → API 接口 → 开启 → 复制接口密钥，IP 白名单填 `127.0.0.1` |
 | 3. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴下方命令 → 保存后点「执行」 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴命令 → 保存后点「执行」 |
 | 4. 创建网站 | 网站 → 创建网站 → 类型「静态」→ 域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」→ 域名 `monitor.example.com` |

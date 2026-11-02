@@ -58,6 +58,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
       - name: Download firmware artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -72,5 +74,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: "${{ steps.release_title.outputs.title }}"
-          files: release/Server-M-full.bin
+          files: |
+            release/Server-M-full.bin
+            server/ai_passport_agent.py
           fail_on_unmatched_files: true

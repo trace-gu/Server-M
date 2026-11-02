@@ -44,7 +44,7 @@ issued by a public CA.
 
 | Step | 1Panel | Baota |
 | --- | --- | --- |
-| 1. Upload the script | Hosts → Files → `/opt` → create `ai-passport` → upload `server/ai_passport_agent.py` from this repository | Files → `/opt` → create `ai-passport` → upload the same file |
+| 1. Upload the script | Hosts → Files → `/opt` → create `ai-passport` → upload `server/ai_passport_agent.py` from this repository (or download it from Releases) | Files → `/opt` → create `ai-passport` → upload the same file |
 | 2. Enable the API | Panel settings → API interface → enable → copy the key | Panel settings → API interface → enable → copy the key, allow `127.0.0.1` in the IP allowlist |
 | 3. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the command → save, then run it once |
 | 4. Create a site | Websites → Create → type "static" → domain `monitor.example.com` | Websites → Add site → PHP "static" → domain `monitor.example.com` |

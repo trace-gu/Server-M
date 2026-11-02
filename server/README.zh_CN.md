@@ -81,7 +81,7 @@ sudo python3 ai_passport_agent.py install \
 
 | 步骤 | 1Panel | 宝塔 |
 | --- | --- | --- |
-| 1. 上传脚本 | 主机 → 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py` | 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py` |
+| 1. 上传脚本 | 主机 → 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py`（可从 Releases 下载） | 文件 → 进入 `/opt` → 新建目录 `ai-passport` → 上传 `ai_passport_agent.py` |
 | 2. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴下面 1Panel 的命令 → 保存后点「执行」 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴宝塔的命令 → 保存后点「执行」 |
 | 3. 复制 Token | 打开任务日志，找到「访问令牌」一行，复制保存；成功后停用该任务 | 同上 |
 | 4. 验证 | 新建临时计划任务执行 `curl` 命令，在日志中查看返回 | 同上 |

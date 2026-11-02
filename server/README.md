@@ -84,7 +84,7 @@ and website reverse proxy**; no hand-written nginx config is needed.
 
 | Step | 1Panel | Baota |
 | --- | --- | --- |
-| 1. Upload the script | Hosts → Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` | Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` |
+| 1. Upload the script | Hosts → Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` (also available in Releases) | Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` |
 | 2. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the 1Panel command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the Baota command → save, then run it once |
 | 3. Copy the token | Open the task log and copy the access-token line. Save it and disable the task | Same |
 | 4. Verify | Create a temporary scheduled task that runs the `curl` command and read its log | Same |
