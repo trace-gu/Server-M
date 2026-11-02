@@ -32,6 +32,65 @@ Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It 
 | Buttons | UP / DOWN / OK |
 | Network | 2.4 GHz Wi-Fi and a host running the relay service that the device can reach |
 
+## Server setup (1Panel / Baota)
+
+Install the relay script once on every monitored server. The steps below use
+only the panel web UI and need no SSH: the script calls the panel API, and the
+device only requests `/status` with a token.
+
+**Prerequisites**: a domain that resolves to this server, with a Let's Encrypt
+certificate requested in the panel. The device accepts only HTTPS certificates
+issued by a public CA.
+
+| Step | 1Panel | Baota |
+| --- | --- | --- |
+| 1. Upload the script | Hosts → Files → `/opt` → create `ai-passport` → upload `server/ai_passport_agent.py` from this repository | Files → `/opt` → create `ai-passport` → upload the same file |
+| 2. Enable the API | Panel settings → API interface → enable → copy the key | Panel settings → API interface → enable → copy the key, allow `127.0.0.1` in the IP allowlist |
+| 3. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the command → save, then run it once |
+| 4. Create a site | Websites → Create → type "static" → domain `monitor.example.com` | Websites → Add site → PHP "static" → domain `monitor.example.com` |
+| 5. Reverse proxy | Site settings → Reverse proxy → add target `http://127.0.0.1:8899` | Settings → Reverse proxy → add target URL `http://127.0.0.1:8899`, send domain `$host`, disable caching |
+| 6. Certificate | Websites → HTTPS → Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → enable "force HTTPS" |
+| 7. Verify | Create a temporary scheduled task that runs the `curl` command below and read its log | Same |
+
+Commands for step 3 (replace the key copied in step 2):
+
+```bash
+# 1Panel
+python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel 1panel --api-key '<API key>'
+
+# Baota
+python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel baota --api-key '<API key>'
+```
+
+Open the task log after it runs and copy the value on the access-token line.
+Save it and disable or delete the task. systemd keeps the agent running, so the
+task does not need to run repeatedly.
+
+Verification command for step 7:
+
+```bash
+curl -s -H "X-Api-Token: <access token>" http://127.0.0.1:8899/status
+```
+
+A JSON response containing `"online": true` means the setup works. Opening
+`https://monitor.example.com/status` in a browser shows `unauthorized`; that is
+expected because browsers do not send `X-Api-Token`.
+
+Finally, enter `https://monitor.example.com/status` and the same token in the
+device portal's Server card. Repeat these steps for each server, using its own
+domain and token.
+
+> [!NOTE]
+> If the 1Panel reverse-proxy container cannot reach the host's `127.0.0.1`,
+> point the proxy target at the server's LAN IP (for example
+> `http://192.168.1.10:8899`), reinstall with `--bind 0.0.0.0`, and use a
+> firewall to allow only the proxy host to reach that port.
+
+See the [relay server guide](server/README.md) for endpoint fields, manual
+installation, and troubleshooting.
+
 ## Flash the prebuilt firmware
 
 1. Download `Server-M-full.bin` from [Releases](https://github.com/trace-gu/Server-M/releases/latest).

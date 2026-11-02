@@ -32,6 +32,59 @@ Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。�
 | 按键 | UP / DOWN / OK |
 | 网络 | 2.4 GHz Wi-Fi，以及一台运行中转服务、可被设备访问的主机 |
 
+## 服务器端配置（1Panel / 宝塔）
+
+每台被监控的服务器先安装一次中转脚本。下面全程使用面板网页，不需要 SSH：
+脚本负责调用面板 API，设备只访问带 Token 的 `/status`。
+
+**准备**：一个可解析到该服务器的域名，并在面板中为它申请 Let's Encrypt
+证书。设备只接受公共 CA 签发的 HTTPS 证书。
+
+| 步骤 | 1Panel | 宝塔 |
+| --- | --- | --- |
+| 1. 上传脚本 | 主机 → 文件 → `/opt` → 新建目录 `ai-passport` → 上传仓库中的 `server/ai_passport_agent.py` | 文件 → `/opt` → 新建目录 `ai-passport` → 上传同一文件 |
+| 2. 开启 API | 面板设置 → API 接口 → 开启 → 复制密钥 | 面板设置 → API 接口 → 开启 → 复制接口密钥，IP 白名单填 `127.0.0.1` |
+| 3. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴下方命令 → 保存后点「执行」 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴命令 → 保存后点「执行」 |
+| 4. 创建网站 | 网站 → 创建网站 → 类型「静态」→ 域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」→ 域名 `monitor.example.com` |
+| 5. 反向代理 | 网站设置 → 反向代理 → 添加 → 目标 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加 → 目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
+| 6. 证书 | 网站 → HTTPS → Let's Encrypt → 开启「强制 HTTPS」 | SSL → Let's Encrypt → 开启「强制 HTTPS」 |
+| 7. 验证 | 新建临时计划任务执行下方 `curl`，在任务日志中查看返回 | 同上 |
+
+第 3 步命令（把密钥换成第 2 步复制的值）：
+
+```bash
+# 1Panel
+python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel 1panel --api-key '<API 密钥>'
+
+# 宝塔
+python3 /opt/ai-passport/ai_passport_agent.py install \
+    --panel baota --api-key '<API 密钥>'
+```
+
+执行后在任务日志中查看结果，找到「访问令牌」那一行并复制保存。安装成功后
+停用或删除这个任务即可；日常运行由 systemd 托管，不需要计划任务反复执行。
+
+第 7 步验证命令：
+
+```bash
+curl -s -H "X-Api-Token: <访问 Token>" http://127.0.0.1:8899/status
+```
+
+返回包含 `"online": true` 的 JSON 即配置成功。浏览器直接打开
+`https://monitor.example.com/status` 会显示 `unauthorized`，这是正常的：
+浏览器不会发送 `X-Api-Token`。
+
+最后在设备配网页的「服务器」卡片填写 `https://monitor.example.com/status`
+和同一个 Token。多台服务器重复以上步骤，每台使用各自的域名和 Token。
+
+> [!NOTE]
+> 如果 1Panel 的反向代理容器访问不到宿主机的 `127.0.0.1`，把代理目标改为
+> 服务器内网 IP（如 `http://192.168.1.10:8899`），并用 `--bind 0.0.0.0`
+> 重新执行安装，再用防火墙只放行面板代理所在主机访问该端口。
+
+更细的接口字段、手动安装和排错见[服务器端中转说明](server/README.zh_CN.md)。
+
 ## 烧录预编译固件
 
 1. 从 [Releases](https://github.com/trace-gu/Server-M/releases/latest) 下载 `Server-M-full.bin`。

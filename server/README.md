@@ -85,12 +85,13 @@ and website reverse proxy**; no hand-written nginx config is needed.
 | Step | 1Panel | Baota |
 | --- | --- | --- |
 | 1. Upload the script | Hosts → Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` | Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` |
-| 2. Install | Hosts → Terminal, paste the 1Panel command below | Terminal, paste the Baota command below |
-| 3. Check liveness | `curl -s http://127.0.0.1:8899/healthz` returns `{"ok":true,...}` | Same |
-| 4. Create a site | Websites → Create → type "static", domain `monitor.example.com` | Websites → Add site → PHP "static", domain `monitor.example.com` |
-| 5. Reverse proxy | Site settings → Reverse proxy → add: target `http://127.0.0.1:8899` | Settings → Reverse proxy → add: target URL `http://127.0.0.1:8899`, send domain `$host`, cache off |
-| 6. Certificate | Websites → HTTPS → request Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → force HTTPS |
-| 7. Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
+| 2. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the 1Panel command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the Baota command → save, then run it once |
+| 3. Copy the token | Open the task log and copy the access-token line. Save it and disable the task | Same |
+| 4. Verify | Create a temporary scheduled task that runs the `curl` command and read its log | Same |
+| 5. Create a site | Websites → Create → type "static", domain `monitor.example.com` | Websites → Add site → PHP "static", domain `monitor.example.com` |
+| 6. Reverse proxy | Site settings → Reverse proxy → add: target `http://127.0.0.1:8899` | Settings → Reverse proxy → add: target URL `http://127.0.0.1:8899`, send domain `$host`, cache off |
+| 7. Certificate | Websites → HTTPS → request Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → force HTTPS |
+| 8. Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
 
 The step 2 commands (replace the key with the one copied from the panel):
 
@@ -108,12 +109,14 @@ The installer creates and starts the `ai-passport-agent` systemd service,
 generates a random access token, and writes it to
 `/etc/ai-passport/agent.json` with mode `0600`.
 
-If the panel has no terminal entry, run the same command over SSH; it works
-from any directory because the installer uses absolute paths.
+If the panel has no scheduled-task entry, run the same command in its terminal
+or over SSH; it works from any directory because the installer uses absolute
+paths.
 
 Opening `https://monitor.example.com/status` in a browser shows
 `{"ok":false,"error":"unauthorized"}`. That is **expected**: browsers do not
-send `X-Api-Token`. Verify from a terminal instead:
+send `X-Api-Token`. Create a temporary scheduled task that runs the verification
+command below and read its log:
 
 ```bash
 TOKEN=$(sudo python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
