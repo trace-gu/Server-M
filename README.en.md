@@ -34,47 +34,35 @@ Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It 
 
 ## Server setup (1Panel / Baota)
 
-Install the relay script once on every monitored server. The steps below use
-only the panel web UI and need no SSH.
+Install the relay script once on every server. All steps use the panel web UI;
+no SSH and no panel API key are required.
 
 ### 1. Upload the script
 
-- 1Panel: Files → open `/opt` → upload `ai_passport_agent.py`
-- Baota: Files → open `/opt` → upload `ai_passport_agent.py`
+Open Files in the panel, go to `/opt`, and upload `ai_passport_agent.py`. The
+script lives in the repository's `server/` directory and is also available in
+[Releases](https://github.com/trace-gu/Server-M/releases/latest).
 
-The script lives in the repository's `server/` directory and is also available
-in [Releases](https://github.com/trace-gu/Server-M/releases/latest).
+### 2. Install
 
-### 2. Install with a scheduled task
-
-1Panel: Scheduled tasks → Create → type "Shell script" → any schedule (for
-example daily) → script:
+Create a Shell scheduled task with any schedule and run:
 
 ```bash
-python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<key>'
+python3 /opt/ai_passport_agent.py install --panel local
 ```
 
-Baota: Scheduled tasks → Add → type "Shell script" → any schedule → script:
+After clicking Run:
 
-```bash
-python3 /opt/ai_passport_agent.py install --panel baota --api-key '<key>'
-```
+- Copy the access token from the task log; it is printed only once.
+- Pause or delete the task; it is only needed for installation.
+- Without scheduled tasks, run the same command in the panel terminal, prefixed
+  with `sudo` when not root.
 
-Save it and click Run. The task log shows the installation result and the
-access token used by the device. The token is printed only this once, so copy
-it first. Pause or delete the task after installation; it is only needed once.
+> The firmware currently shows local metrics only, so `--panel local` needs no
+> panel API. For panel-side statistics, use `--panel 1panel` or `--panel baota`
+> and provide the API key instead.
 
-Without scheduled tasks, run the same command in 1Panel's terminal
-(Hosts → Terminal) or Baota's terminal; the terminal needs root, so prefix it
-with `sudo`.
-
-**About `--api-key`**: this is the key generated under Panel settings → API
-interface, not a value you invent. You can install and run with any value, but
-the agent then falls back to local `/proc` metrics and loses panel statistics
-and Docker container counts. Enable the panel API and use the real key to get
-those fields; on Baota, also allow `127.0.0.1` in the API allowlist.
-
-### 3. Create the site, reverse proxy, and certificate
+### 3. Site and HTTPS
 
 | Action | 1Panel | Baota |
 | --- | --- | --- |
@@ -83,27 +71,28 @@ those fields; on Baota, also allow `127.0.0.1` in the API allowlist.
 | Certificate | Websites → HTTPS → Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → enable "force HTTPS" |
 | Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
 
-The device accepts only public-CA HTTPS certificates, so a domain and a Let's
-Encrypt certificate are required.
+The device accepts only public-CA certificates, so a domain and a Let's Encrypt
+certificate are required.
 
 ### 4. Verify
 
-Create a temporary scheduled task that runs the command below and read its log:
+Create a temporary scheduled task and run:
 
 ```bash
-curl -s -H "X-Api-Token: <access token>" http://127.0.0.1:8899/status
+curl -s -H "X-Api-Token: $(python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')" \
+     http://127.0.0.1:8899/status
 ```
 
-A JSON response containing `"online": true` means the setup works. Delete the
-temporary task afterwards. Opening `https://monitor.example.com/status` in a
-browser shows `unauthorized`; that is expected because browsers do not send
+A JSON response containing `"online": true` means success; delete the temporary
+task afterwards. Opening `https://monitor.example.com/status` in a browser
+shows `unauthorized`, which is expected because browsers do not send
 `X-Api-Token`.
 
 ### 5. Enter the values on the device
 
-Enter `https://monitor.example.com/status` and the same token in the device
-portal's Server card. Repeat these steps for each server, using its own domain
-and token.
+Enter `https://monitor.example.com/status` and the access token from the log in
+the device portal's Server card. Repeat for each server with its own domain and
+token.
 
 > [!NOTE]
 > If the 1Panel reverse-proxy container cannot reach the host's `127.0.0.1`,

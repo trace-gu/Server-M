@@ -34,73 +34,64 @@ Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。�
 
 ## 服务器端配置（1Panel / 宝塔）
 
-每台被监控的服务器先安装一次中转脚本。下面全程使用面板网页，不需要 SSH。
+每台服务器安装一次中转脚本，全程使用面板网页，不需要 SSH，也不需要面板 API
+密钥。
 
 ### 1. 上传脚本
 
-- 1Panel：左侧「文件」→ 进入 `/opt` → 上传 `ai_passport_agent.py`
-- 宝塔：左侧「文件」→ 进入 `/opt` → 上传 `ai_passport_agent.py`
+在面板「文件」中进入 `/opt`，上传 `ai_passport_agent.py`。脚本在仓库的
+`server/` 目录，也可从 [Releases](https://github.com/trace-gu/Server-M/releases/latest) 下载。
 
-脚本在仓库的 `server/` 目录，也可以从 [Releases](https://github.com/trace-gu/Server-M/releases/latest) 下载。
+### 2. 执行安装
 
-### 2. 用计划任务安装
-
-1Panel：左侧「计划任务」→ 创建 → 类型「Shell 脚本」→ 执行周期随意（如每天）→ 脚本内容：
+在「计划任务」中新建 Shell 脚本，周期随意，执行：
 
 ```bash
-python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<密钥>'
+python3 /opt/ai_passport_agent.py install --panel local
 ```
 
-宝塔：左侧「计划任务」→ 添加任务 → 类型「Shell 脚本」→ 周期随意 → 脚本内容：
+点「执行」后：
 
-```bash
-python3 /opt/ai_passport_agent.py install --panel baota --api-key '<密钥>'
-```
+- 日志中的「访问令牌」只打印一次，复制保存。
+- 安装任务用完即弃，暂停或删除。
+- 没有计划任务时，在面板终端执行同一命令；非 root 加 `sudo`。
 
-保存后点「执行」，在任务「日志」中查看安装结果。日志里的「访问令牌」就是
-设备要用的 Token，只打印这一次，请先复制保存。安装完成后把这条计划任务
-暂停或删除即可，它只用于安装。
+> 当前固件只显示本机指标，`--panel local` 无需面板 API。需要面板侧统计时，
+> 再改用 `--panel 1panel` 或 `--panel baota` 并提供 API 密钥。
 
-不想用计划任务时，1Panel「主机 → 终端」、宝塔「终端」，粘贴同一条命令回车
-（终端中需要 root，可在命令前加 `sudo`）。
-
-**关于 `--api-key`**：它是面板「面板设置 → API 接口」生成的密钥，不需要自己
-编造。随便填一个值也能安装运行，但脚本会退回本机 `/proc` 指标，面板统计和
-Docker 容器数等数据不可用。需要这些数据时，请开启面板 API 并填入真实密钥；
-宝塔还需要把 `127.0.0.1` 加入 API 白名单。
-
-### 3. 建站、反向代理和证书
+### 3. 建站与 HTTPS
 
 | 操作 | 1Panel | 宝塔 |
 | --- | --- | --- |
 | 创建静态站点 | 网站 → 创建网站 → 类型「静态」→ 域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」→ 域名 `monitor.example.com` |
 | 反向代理 | 网站设置 → 反向代理 → 添加 → 目标 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加 → 目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
-| 证书 | 网站 → HTTPS → Let's Encrypt → 开启「强制 HTTPS」 | SSL → Let's Encrypt → 开启「强制 HTTPS」 |
+| 申请证书 | 网站 → HTTPS → Let's Encrypt → 开启「强制 HTTPS」 | SSL → Let's Encrypt → 开启「强制 HTTPS」 |
 | 放行端口 | 主机 → 防火墙，放行 80、443 | 安全，放行 80、443 |
 
-设备只接受公共 CA 签发的 HTTPS 证书，因此需要域名和 Let's Encrypt 证书。
+设备只接受公共 CA 签发的证书，因此需要域名和 Let's Encrypt 证书。
 
 ### 4. 验证
 
-新建一个临时计划任务，执行下面的命令，在任务日志中查看返回：
+新建一个临时计划任务，执行：
 
 ```bash
-curl -s -H "X-Api-Token: <访问 Token>" http://127.0.0.1:8899/status
+curl -s -H "X-Api-Token: $(python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')" \
+     http://127.0.0.1:8899/status
 ```
 
-返回包含 `"online": true` 的 JSON 即配置成功，验证后删除这个临时任务。浏览器
-直接打开 `https://monitor.example.com/status` 会显示 `unauthorized`，这是正常
+返回包含 `"online": true` 的 JSON 即成功，随后删除这个临时任务。浏览器直接
+打开 `https://monitor.example.com/status` 会显示 `unauthorized`，这是正常
 现象：浏览器不会发送 `X-Api-Token`。
 
 ### 5. 填入设备
 
-在设备配网页的「服务器」卡片填写 `https://monitor.example.com/status` 和同一个
-Token。多台服务器重复以上步骤，每台使用各自的域名和 Token。
+在设备配网页的「服务器」卡片填写 `https://monitor.example.com/status` 和日志
+中的访问令牌。多台服务器重复以上步骤，每台使用各自的域名和令牌。
 
 > [!NOTE]
 > 如果 1Panel 的反向代理容器访问不到宿主机的 `127.0.0.1`，把代理目标改为
-> 服务器内网 IP（如 `http://192.168.1.10:8899`），并用 `--bind 0.0.0.0`
-> 重新执行安装，再用防火墙只放行面板代理所在主机访问该端口。
+> 服务器内网 IP（如 `http://192.168.1.10:8899`），重新执行安装时加上
+> `--bind 0.0.0.0`，再用防火墙只放行代理主机访问该端口。
 
 更细的接口字段、手动安装和排错见[服务器端中转说明](server/README.zh_CN.md)。
 

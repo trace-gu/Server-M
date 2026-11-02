@@ -4,9 +4,9 @@
 
 # AI Passport 服务器端中转
 
-每台被监控的服务器上运行这一个单文件脚本。它替你调用 1Panel 或宝塔面板
-的官方 API（完成签名），再对外输出一个极简 JSON 接口，设备只做一次带
-Token 的 `GET`。
+每台被监控的服务器上运行这一个单文件脚本。它默认读取本机 `/proc`、`/sys`
+指标，对外输出一个带 Token 的极简 JSON；需要面板侧统计时，可选调用 1Panel
+或宝塔 API。
 
 ## 为什么需要中转
 
@@ -76,51 +76,45 @@ sudo python3 ai_passport_agent.py install \
 
 ## 图形化安装（1Panel / 宝塔）
 
-不想敲命令时，用面板自带的**文件管理 + 计划任务 + 网站反向代理**就能装完，
-不需要手写 nginx 配置。
+用面板自带的文件管理、计划任务和反向代理即可完成，不需要 SSH，也不需要
+面板 API 密钥。
 
 | 步骤 | 1Panel | 宝塔 |
 | --- | --- | --- |
-| 1. 上传脚本 | 主机 → 文件 → 进入 `/opt` → 上传 `ai_passport_agent.py`（可从 Releases 下载） | 文件 → 进入 `/opt` → 上传 `ai_passport_agent.py` |
-| 2. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期随意 → 粘贴下面 1Panel 的命令 → 保存后点「执行」 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期随意 → 粘贴宝塔的命令 → 保存后点「执行」 |
-| 3. 复制 Token | 打开任务日志，找到「访问令牌」一行，复制保存；成功后暂停或删除该任务 | 同上 |
-| 4. 验证 | 新建临时计划任务执行 `curl` 命令，在日志中查看返回 | 同上 |
-| 5. 建站 | 网站 → 创建网站 → 类型选「静态」，域名填 `monitor.example.com` | 网站 → 添加站点 → PHP 版本选「纯静态」，域名填 `monitor.example.com` |
-| 6. 反向代理 | 网站设置 → 反向代理 → 添加：代理地址 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加：目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，缓存关闭 |
-| 7. 证书 | 网站 → HTTPS → Let's Encrypt 申请 → 打开「强制 HTTPS」 | SSL → Let's Encrypt 申请 → 打开「强制 HTTPS」 |
-| 8. 放行端口 | 主机 → 防火墙，放行 80、443 | 安全，放行 80、443 |
+| 1. 上传脚本 | 文件 → 进入 `/opt` → 上传 `ai_passport_agent.py`（可从 Releases 下载） | 同上 |
+| 2. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期随意 → 粘贴下方命令 → 执行 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期随意 → 粘贴命令 → 执行 |
+| 3. 复制 Token | 任务日志中的「访问令牌」只打印一次；复制后暂停或删除任务 | 同上 |
+| 4. 建站 | 网站 → 创建网站 → 类型「静态」，域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」，域名 `monitor.example.com` |
+| 5. 反向代理 | 网站设置 → 反向代理 → 添加代理地址 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
+| 6. 证书 | 网站 → HTTPS → Let's Encrypt 申请 → 开启「强制 HTTPS」 | SSL → Let's Encrypt 申请 → 开启「强制 HTTPS」 |
+| 7. 放行端口 | 主机 → 防火墙，放行 80、443 | 安全，放行 80、443 |
 
-第 2 步的命令：
+第 2 步命令：
 
 ```bash
-# 1Panel
-python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<密钥>'
-
-# 宝塔
-python3 /opt/ai_passport_agent.py install --panel baota --api-key '<密钥>'
+python3 /opt/ai_passport_agent.py install --panel local
 ```
 
-`--api-key` 是面板「面板设置 → API 接口」生成的密钥，不是自定义值。随便填
-也能安装运行，但脚本会退回本机 `/proc` 指标，面板统计、Docker 和证书剩余
-天数不可用；需要这些数据时请开启面板 API 并填入真实密钥。
+当前固件只显示本机指标，`--panel local` 已足够，不需要面板 API。需要面板侧
+统计时，再按上方「1Panel」「宝塔」章节填写 API 密钥。
 
-安装脚本会创建并启动 systemd 服务 `ai-passport-agent`，随机生成访问
-Token 并写入 `/etc/ai-passport/agent.json`（权限 `0600`）。日志里的
-「访问令牌」只打印一次，请先复制保存。
+安装脚本会创建并启动 systemd 服务 `ai-passport-agent`，随机生成访问 Token
+并写入 `/etc/ai-passport/agent.json`（权限 `0600`）。日志里的「访问令牌」
+只打印一次，请先复制保存。
 
-面板里没有「计划任务」入口时，改用终端或 SSH 执行同样的命令；终端中需要
-root，可在命令前加 `sudo`。
+没有计划任务入口时，在面板终端执行同一命令；非 root 需要加 `sudo`。
 
 装完用浏览器打开 `https://monitor.example.com/status` 会看到
 `{"ok":false,"error":"unauthorized"}`，这是**正常现象**：浏览器不会带
-`X-Api-Token`。再建一个临时计划任务执行下面的验证命令，在任务日志里查看返回：
+`X-Api-Token`。新建临时计划任务执行下面的验证命令，在日志中查看返回：
 
 ```bash
-TOKEN=$(python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
-curl -s -H "X-Api-Token: $TOKEN" http://127.0.0.1:8899/status
+curl -s -H "X-Api-Token: $(python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')" \
+     http://127.0.0.1:8899/status
 ```
 
-设备配网页里填 `https://monitor.example.com/status` 和同一个 Token 即可。
+返回包含 `"online": true` 的 JSON 即成功，随后删除临时任务。设备配网页里
+填 `https://monitor.example.com/status` 和同一个 Token 即可。
 
 图形化卸载：面板终端执行
 `sudo python3 /opt/ai_passport_agent.py uninstall --purge`，再在网站列表里
