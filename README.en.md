@@ -12,12 +12,12 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-64748b?style=flat-square" alt="MIT License"></a>
 </p>
 
-Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It polls servers through a relay endpoint and shows CPU, memory, disk, network, temperature, and container metrics on the 240 × 320 display, with 24-hour trends, screen-off power saving, and switching between saved networks.
+Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It polls servers through a relay endpoint and shows CPU, memory, disk, disk I/O, load, network throughput, containers, and uptime on the 240 × 320 display, with 24-hour trends, screen-off power saving, and switching between saved networks.
 
 ## Features
 
 - Store up to 20 servers; the list shows online status plus CPU and memory summaries.
-- The detail page shows CPU, memory, swap, disk, load, network throughput, disk I/O, uptime, temperature, TLS certificate days remaining, Docker container state, and backup status.
+- The detail page shows CPU, memory, disk usage, disk read/write rate, load, running containers, network receive/transmit rate, and uptime, plus 24-hour CPU and memory trends.
 - Keep a 24-hour trend for each server on the device.
 - Set the refresh interval from 1 to 300 seconds, brightness from 10 to 100%, and screen-off to always on.
 - Store up to 6 Wi-Fi networks; reconnect automatically and rotate to the next saved network after repeated failures.
@@ -70,10 +70,9 @@ with `sudo`.
 
 **About `--api-key`**: this is the key generated under Panel settings → API
 interface, not a value you invent. You can install and run with any value, but
-the agent then falls back to local `/proc` metrics and loses panel-provided
-statistics, Docker counts, and certificate days remaining. Enable the panel API
-and use the real key to get those fields; on Baota, also allow `127.0.0.1` in
-the API allowlist.
+the agent then falls back to local `/proc` metrics and loses panel statistics
+and Docker container counts. Enable the panel API and use the real key to get
+those fields; on Baota, also allow `127.0.0.1` in the API allowlist.
 
 ### 3. Create the site, reverse proxy, and certificate
 
