@@ -8,6 +8,13 @@
 > 发布负责人检查已合并的用户可见变化，并与 `CHANGELOG.md` 同步更新。当前
 > `Unreleased` 下的条目是下次发布的待核对内容，不是已经定稿的发布历史。
 
+## 1.0.0
+
+- Server-M 首次发布：面向 FoloToy AI Passport 的服务器监控应用，LVGL 应用通过设备 Wi-Fi 轮询 HTTP 中转地址，展示服务器状态、延迟与历史记录。
+- 配网完全在设备上完成：临时热点提供 HTTP 页面，顺序为服务器、显示设置、Wi-Fi；连接最后一张卡片后即保存网络、关闭热点并立刻加入 Wi-Fi。
+- ESP-IDF 项目更名为 `Server-M`，构建与发布产物为 `Server-M.bin` 与 `Server-M-full.bin`，`version.txt` 记录 `1.0.0`。
+- 移除继承的模板 demo 页面、对应主机测试桩与 `ui_pixel` 辅助代码，并将文档对齐到纯应用仓库。
+
 ## Unreleased
 
 - 加入厂家为优特利 520mAh 电芯生成的 80 字节 CW2017 profile，并实现内容与更新标志检查、写入后校验、规定的重启时序以及有上限的 SOC 就绪等待。

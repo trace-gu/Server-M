@@ -10,6 +10,13 @@
 > with `CHANGELOG.zh_CN.md`. The entries currently under `Unreleased` are pending
 > review for the next release; they are not a finalized release history.
 
+## 1.0.0
+
+- Initial release of Server-M, a server-monitoring application for the FoloToy AI Passport: the LVGL application polls a relay endpoint over HTTP through the on-device Wi-Fi connection and renders server status, latency, and history.
+- Provisioning runs entirely on the device: the temporary hotspot serves an HTTP page ordered as server, display settings, then Wi-Fi, and connecting the last card saves the network, closes the hotspot, and joins Wi-Fi immediately.
+- Renamed the ESP-IDF project to `Server-M`; build and release artifacts are `Server-M.bin` and `Server-M-full.bin`, and `version.txt` records `1.0.0`.
+- Removed the inherited template demo pages, their host-test stubs, and the `ui_pixel` helpers, and aligned the documentation with the application-only repository.
+
 ## Unreleased
 
 - Added the supplied 80-byte CW2017 profile for the specified 520 mAh cell, including content/update-flag checks, verified writes, the required restart sequence, and bounded SOC-readiness polling.
