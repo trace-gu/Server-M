@@ -10,10 +10,11 @@ These rules apply equally to human contributors and AI agents. Documentation is 
 
 - English is mandatory at every maintained default Markdown path: `name.md`.
 - Simplified Chinese is provided at the paired path `name.zh_CN.md`.
+- Exception: the repository-root homepage pair is Chinese-first. `README.md` holds Simplified Chinese and `README.en.md` holds English, so GitHub opens the project in Chinese. No root `README.zh_CN.md` is used.
 - Both files begin with reciprocal language links. Keep their headings, facts, examples, safety warnings, and links aligned in the same change.
 - English default prose must not contain Chinese text. The `简体中文` switch label is the only allowed CJK text on an English page.
 - Code, commands, paths, URLs, identifiers, and data fields remain unchanged between translations where appropriate.
-- The repository check rejects an unpaired document, a missing language switch, or CJK prose in an English default file.
+- The repository check rejects an unpaired document, a missing language switch, or CJK prose in an English default file, except for the Chinese-first homepage pair.
 
 ### GitHub community-document links
 
@@ -78,11 +79,11 @@ require rewriting or translating the original upstream documents.
 
 ## Placement
 
-- Keep the tracked repository root limited to tool-discovery files (`AGENTS.md`, `CLAUDE.md` and their translations), an optional fork README pair, license/build manifests, and ESP-IDF configuration.
+- Keep the tracked repository root limited to tool-discovery files (`AGENTS.md`, `CLAUDE.md` and their translations), the Chinese-first homepage pair (`README.md` and `README.en.md`), license/build manifests, and ESP-IDF configuration.
 - Put project documentation and history in `docs/`, grouped by contribution, development, hardware, and software responsibility.
 - Put GitHub-recognized community files, templates, issue forms, and workflows in `.github/`.
 - Put reusable binary/source assets in `assets/`, project skills in `skills/`, and automation in `tools/`.
-- Repository checks reject additional root Markdown. Do not add a root document merely for visibility; link it from `docs/README.md` instead.
+- Repository checks reject additional root Markdown. Do not add a root document merely for visibility; link it from `docs/README.md` instead. The Chinese-first homepage pair is the only exception.
 
 Do not create empty document scaffolding without a concrete purpose. Register added documents in `docs/README.md` or their directory index and update links when moving or deleting files.
 

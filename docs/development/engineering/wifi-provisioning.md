@@ -4,7 +4,7 @@
 
 # Wi-Fi Provisioning via the On-Device Portal
 
-The firmware stores up to four Wi-Fi networks in NVS and connects to the active
+The firmware stores up to six Wi-Fi networks in NVS and connects to the active
 one at boot. A new network is added from the device: enter the settings page, choose
 **Wi-Fi network**, then **Phone web provisioning**. The
 device opens a temporary access point and serves an HTTP configuration page; the

@@ -32,7 +32,7 @@ ROOT_MARKDOWN_ALLOWLIST = {
     "CLAUDE.md",
     "CLAUDE.zh_CN.md",
     "README.md",
-    "README.zh_CN.md",
+    "README.en.md",
 }
 # Register only concrete, vendored component directories, e.g. "components/foo".
 # These exemptions never change the input to sensitive-content/conflict checks.
@@ -217,6 +217,23 @@ def check_document_languages(
         name = path.name
         text = path.read_text(encoding="utf-8")
         opening = "\n".join(text.splitlines()[:8])
+
+        # The repository homepage is Chinese-first: README.md holds Simplified
+        # Chinese and README.en.md is its English peer. Every other maintained
+        # document keeps the English-default rule.
+        if path == ROOT / "README.md":
+            peer_name = "README.en.md"
+            if ROOT / peer_name not in markdown:
+                errors.append(f"README.md: missing English homepage peer {peer_name}")
+            elif peer_name not in opening:
+                errors.append(f"README.md: missing top language link to {peer_name}")
+            continue
+        if path == ROOT / "README.en.md":
+            if ROOT / "README.md" not in markdown:
+                errors.append("README.en.md: missing Chinese homepage peer README.md")
+            elif "README.md" not in opening:
+                errors.append("README.en.md: missing top language link to README.md")
+            continue
 
         if name.endswith(".zh_CN.md"):
             default_name = f"{name[:-len('.zh_CN.md')]}.md"

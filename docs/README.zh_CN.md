@@ -126,7 +126,7 @@ git switch -c feature/my-passport-app
 | 输入 | `UP` / `DOWN` / `OK` 三键，共用 GPIO0 的 ADC 电阻分压 | `bsp_button_init()`、`bsp_button_read_mv()` | 回调运行在 button 组件任务中，不能阻塞；不能再创建第二个 ADC1 unit |
 | 音频 | ES8311，I2S0 全双工 PCM，支持播放、麦克风录音及软件休眠/恢复 | `bsp_audio_*` | PCM 读写为阻塞调用，应放工作任务；codec 休眠前必须停止 PCM I/O；格式切换必须保留 BSP 内的 close/open 流程 |
 | 电池 | CW2017 的 SOC 与电压读取 | `bsp_battery_*` | 是可缺省能力；读数精度取决于电芯与 profile，不能等同于已标定结果 |
-| Wi-Fi | 2.4 GHz STA 连接、已保存网络与设备内配网页面 | `main/app_wifi.c`、`main/app_portal.c` | 最多保存四个网络；热点开启时页面服务在 `192.168.4.1`，已联网时使用设备局域网 IP；凭证保存在 NVS |
+| Wi-Fi | 2.4 GHz STA 连接、已保存网络与设备内配网页面 | `main/app_wifi.c`、`main/app_portal.c` | 最多保存六个网络；热点开启时页面服务在 `192.168.4.1`，已联网时使用设备局域网 IP；凭证保存在 NVS |
 | 低功耗 | 息屏关闭背光，并按周期发送保活请求 | `main/main.c` | 应用不进入浅睡或深睡；BSP 仍提供终端深睡接口，但调用后应用即结束 |
 | 共享总线 | ES8311 与 CW2017 共用 I2C0 | `bsp_i2c_*` | 所有设备复用 BSP 持有的总线；不能为扫描或新设备再创建同端口总线 |
 | 日志与烧录 | ESP32-C3 原生 USB Serial/JTAG | ESP-IDF console | GPIO18/19 保留给 USB；UART0 默认 TX GPIO21 与背光冲突 |
