@@ -14,5 +14,7 @@ const char *app_portal_ip(void);
 // true 表示本次配网复用了已连接的 Wi-Fi,没有另开热点。
 bool app_portal_sta_mode(void);
 bool app_portal_exit_requested(void);
+// 网页要求"连接并退出配网"时置位;退出配网页后由主循环取走并触发连接。
+bool app_portal_take_connect_requested(void);
 bool app_portal_take_config_changed(void);
 uint32_t app_portal_elapsed_s(void);

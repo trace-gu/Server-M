@@ -25,6 +25,8 @@ static httpd_handle_t s_server;
 static int64_t s_started_ms;
 static atomic_bool s_exit_requested;
 static atomic_bool s_config_changed;
+// 网页点了"连接并退出配网":退出配网页后要立刻按新配置连接 Wi-Fi。
+static atomic_bool s_connect_requested;
 // 配网页对外地址:连着 Wi-Fi 时用本机在局域网里的 IP,否则退化为 SoftAP 的 192.168.4.1。
 static char s_access_ip[16] = "192.168.4.1";
 static bool s_sta_mode;
@@ -187,6 +189,9 @@ static esp_err_t wifi_post(httpd_req_t *req)
     cJSON *root = parse_body(req);
     if (!root) return send_error(req, "请求格式错误");
     const char *action = json_string(root, "action");
+    // 网页最后一步"连接并退出配网":保存后立刻关热点、切回 STA 再连接。
+    // 若在热点还开着时就连,随后关闭热点的模式切换会把连接打断。
+    bool then_exit = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "then_exit"));
     app_config_t cfg;
     app_config_snapshot(&cfg);
     esp_err_t err = ESP_OK;
@@ -226,8 +231,15 @@ static esp_err_t wifi_post(httpd_req_t *req)
     cJSON_Delete(root);
     err = app_config_apply(&cfg);
     if (err != ESP_OK) return send_error(req, "保存配置失败");
-    app_wifi_note_config_changed();
     atomic_store(&s_config_changed, true);
+    if (then_exit) {
+        // 交给主循环:先回设置页、关热点、切回 STA,再连 Wi-Fi。
+        // 单独用一个标志,避免 s_config_changed 被配网页重绘先消费掉导致漏连。
+        atomic_store(&s_connect_requested, true);
+        atomic_store(&s_exit_requested, true);
+    } else {
+        app_wifi_note_config_changed();
+    }
     return send_ok(req);
 }
 
@@ -406,6 +418,7 @@ esp_err_t app_portal_start(void)
     s_started_ms = esp_timer_get_time() / 1000;
     atomic_store(&s_exit_requested, false);
     atomic_store(&s_config_changed, false);
+    atomic_store(&s_connect_requested, false);
     ESP_LOGI(TAG, "配网页面已启动: http://%s (STA=%d)", s_access_ip, (int)s_sta_mode);
     return ESP_OK;
 }
@@ -430,6 +443,7 @@ void app_portal_stop(void)
     app_wifi_stop_ap();
     s_sta_mode = false;
     atomic_store(&s_exit_requested, false);
+    atomic_store(&s_connect_requested, false);
 }
 
 bool app_portal_active(void)
@@ -440,6 +454,11 @@ bool app_portal_active(void)
 bool app_portal_exit_requested(void)
 {
     return atomic_load(&s_exit_requested);
+}
+
+bool app_portal_take_connect_requested(void)
+{
+    return atomic_exchange(&s_connect_requested, false);
 }
 
 bool app_portal_take_config_changed(void)

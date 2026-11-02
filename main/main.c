@@ -308,11 +308,16 @@ static void start_portal(void)
 
 static void exit_portal(void)
 {
-    (void)app_portal_take_config_changed();
-    // 先切回设置页再关闭服务:httpd_stop 会等手机侧连接收尾,
+    bool reconnect = app_portal_take_connect_requested() || app_portal_take_config_changed();
+    // 先切回本地界面再关闭服务:httpd_stop 会等手机侧连接收尾,
     // 先返回界面才不会让人觉得"按了确定没反应"。
-    enter_settings();
+    // 刚从网页配完 Wi-Fi 时直接进 Wi-Fi 页,那里会显示连上后的 IP。
+    if (reconnect) enter_wifi();
+    else enter_settings();
     app_portal_stop();
+    // 热点关闭、模式切回 STA 之后再发起连接。若在热点还开着时连接,
+    // 紧接着的模式切换会把刚建立的连接打断,表现为"配完网没连上"。
+    if (reconnect) app_wifi_note_config_changed();
 }
 
 static void switch_server(int delta)

@@ -40,6 +40,9 @@ li .grow{flex:1;min-width:0}
 .msg{font-size:13px;margin-top:10px;min-height:20px}
 .ok{color:var(--ok)}.bad{color:var(--bad)}
 .footer{text-align:center;color:var(--muted);font-size:12px;margin-top:8px}
+.done{display:none}
+.done .big{font-size:17px;font-weight:600;color:var(--ok);margin:0 0 10px}
+.done p{margin:8px 0}
 </style>
 </head>
 <body>
@@ -53,25 +56,6 @@ li .grow{flex:1;min-width:0}
   <h2>设备热点</h2>
   <div class="sub">手机连接热点后打开本页。热点：<strong id="apssid">--</strong>，密码：<strong id="appass">--</strong></div>
   <div class="hint" id="stainfo">正在读取状态...</div>
-</div>
-
-<div class="card">
-  <h2>Wi-Fi 网络（可保存多个）</h2>
-  <ul id="wifilist"></ul>
-  <div class="row" style="margin-top:10px">
-    <button class="ghost" id="scanbtn" onclick="scanWifi()">扫描附近网络</button>
-  </div>
-  <select id="wscan" onchange="pickScan(this)" style="margin-top:10px">
-    <option value="">选择附近的 Wi-Fi…</option>
-  </select>
-  <div class="hint">点“扫描附近网络”列出周围 SSID（按信号强弱排序），选中即填入下方名称。</div>
-  <div class="row" style="margin-top:10px">
-    <input id="wssid" placeholder="Wi-Fi 名称 (SSID)" autocomplete="off">
-    <input id="wpass" type="password" placeholder="密码（开放网络留空）" autocomplete="off">
-    <button onclick="addWifi()">保存网络</button>
-  </div>
-  <div class="hint">设备会优先连接“当前使用”的网络；连接失败会自动尝试其它已保存网络。最多 6 个。</div>
-  <div class="msg" id="wmsg"></div>
 </div>
 
 <div class="card">
@@ -122,10 +106,38 @@ li .grow{flex:1;min-width:0}
   </div>
   <div class="row" style="margin-top:12px">
     <button onclick="saveSettings()">保存设置</button>
-    <button class="ghost" onclick="exitPortal()">退出配网并返回监控</button>
+    <button class="ghost" onclick="exitPortal()">暂不配网，直接退出</button>
   </div>
   <div class="hint">仅当屏幕显示某台服务器详情且屏幕点亮时才会拉取数据；熄屏后停止请求。</div>
   <div class="msg" id="gmsg"></div>
+</div>
+
+<div class="card">
+  <h2>连接 Wi-Fi（最后一步）</h2>
+  <ul id="wifilist"></ul>
+  <div class="row" style="margin-top:10px">
+    <button class="ghost" id="scanbtn" onclick="scanWifi()">扫描附近网络</button>
+  </div>
+  <select id="wscan" onchange="pickScan(this)" style="margin-top:10px">
+    <option value="">选择附近的 Wi-Fi…</option>
+  </select>
+  <div class="hint">点“扫描附近网络”列出周围 SSID（按信号强弱排序），选中即填入下方名称。</div>
+  <div class="row" style="margin-top:10px">
+    <input id="wssid" placeholder="Wi-Fi 名称 (SSID)" autocomplete="off">
+    <input id="wpass" type="password" placeholder="密码（开放网络留空）" autocomplete="off">
+  </div>
+  <div style="margin-top:12px">
+    <button id="wbtn" onclick="connectAndExit()">连接并退出配网</button>
+  </div>
+  <div class="hint">点击后设备会立即关闭配网热点，改用这里填写的 Wi-Fi。请先完成上面的服务器和显示设置。</div>
+  <div class="msg" id="wmsg"></div>
+</div>
+
+<div class="card done" id="done">
+  <div class="big">配网已完成</div>
+  <p>设备正在连接 <strong id="donessid">--</strong>，配网热点即将关闭，本页也会随之断开。</p>
+  <p>连接成功后，请在设备屏幕进入「设置 → Wi-Fi 网络」查看新的 IP；也可以在路由器后台查找主机名 <strong>ai-passport</strong>。</p>
+  <p>若设备一直显示「重连中」，请确认密码正确，并重新在设备上开启手机配网。</p>
 </div>
 
 <div class="footer">Server-M · 数据仅保存在设备本地</div>
@@ -206,13 +218,25 @@ function renderServers(){
     ul.appendChild(li);
   });
 }
-async function addWifi(){
+// 设备收到请求后会立刻关闭热点,响应可能来不及回到手机,所以先切到说明页再发请求。
+function showDone(ssid){
+  document.querySelectorAll('.card').forEach(c=>{if(c.id!=='done')c.style.display='none';});
+  document.getElementById('done').style.display='block';
+  document.getElementById('donessid').textContent=ssid;
+  window.scrollTo(0,0);
+}
+async function connectAndExit(){
   const ssid=document.getElementById('wssid').value.trim();
   const pass=document.getElementById('wpass').value;
   if(!ssid){msg('wmsg','请输入 Wi-Fi 名称',false);return;}
-  try{await api('/api/wifi',{action:'add',ssid,password:pass});document.getElementById('wssid').value='';document.getElementById('wpass').value='';msg('wmsg','已保存，设备会尝试连接',true);await load();}catch(e){msg('wmsg',e.message,false);}
+  showDone(ssid);
+  try{await api('/api/wifi',{action:'add',ssid,password:pass,then_exit:true});}catch(e){}
 }
-async function activateWifi(i){try{await api('/api/wifi',{action:'activate',index:i});msg('wmsg','已切换网络',true);await load();}catch(e){msg('wmsg',e.message,false);}}
+async function activateWifi(i){
+  const ssid=cfg.wifi[i].ssid;
+  showDone(ssid);
+  try{await api('/api/wifi',{action:'activate',index:i,then_exit:true});}catch(e){}
+}
 async function deleteWifi(i){if(!confirm('删除这个 Wi-Fi 吗？'))return;try{await api('/api/wifi',{action:'delete',index:i});msg('wmsg','已删除',true);await load();}catch(e){msg('wmsg',e.message,false);}}
 function editServer(i){
   editIndex=i;const s=cfg.servers[i];
