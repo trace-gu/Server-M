@@ -14,6 +14,12 @@
 
 Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It polls servers through a relay endpoint and shows CPU, memory, disk, disk I/O, load, network throughput, containers, and uptime on the 240 × 320 display, with 24-hour trends, screen-off power saving, and switching between saved networks.
 
+<p align="center">
+  <img src="assets/images/server-m-monitor-hero.jpg" width="34%" alt="Server-M detail screen showcase">
+  <img src="assets/images/server-m-monitor-screens.jpg" width="64%" alt="Server-M list, settings, and detail screens">
+</p>
+<p align="center"><sub>Interface showcase</sub></p>
+
 ## Features
 
 - Store up to 20 servers; the list shows online status plus CPU and memory summaries.
