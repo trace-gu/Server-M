@@ -15,8 +15,8 @@
 Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。它通过中转地址轮询服务器状态，在 240 × 320 屏幕上显示 CPU、内存、磁盘、磁盘 I/O、负载、网络吞吐、容器和运行时长等指标，并支持 24 小时趋势、熄屏省电与多网络切换。
 
 <p align="center">
-  <img src="assets/images/server-m-monitor-hero.jpg" width="34%" alt="Server-M 详情页运行展示">
-  <img src="assets/images/server-m-monitor-screens.jpg" width="64%" alt="Server-M 列表、设置和详情界面">
+  <img src="assets/images/server-m-monitor-hero.jpg" width="30%" alt="Server-M 详情页运行展示">
+  <img src="assets/images/server-m-monitor-screens.jpg" width="68%" alt="Server-M 列表、设置和详情界面">
 </p>
 <p align="center"><sub>运行界面展示</sub></p>
 
