@@ -1,6 +1,6 @@
 **English** · [简体中文](README.md)
 
-<h1 align="center">Server-M Monitor</h1>
+<h1 align="center">Server-M Monitor (1Panel / Baota supported)</h1>
 
 <p align="center">
   <strong>Turn a FoloToy AI Passport into a desktop server status display</strong><br>
@@ -15,8 +15,8 @@
 Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It polls servers through a relay endpoint and shows CPU, memory, disk, disk I/O, load, network throughput, containers, and uptime on the 240 × 320 display, with 24-hour trends, screen-off power saving, and switching between saved networks.
 
 <p align="center">
-  <img src="assets/images/server-m-monitor-hero.jpg" width="30%" alt="Server-M detail screen showcase">
-  <img src="assets/images/server-m-monitor-screens.jpg" width="68%" alt="Server-M list, settings, and detail screens">
+  <img src="assets/images/server-m-monitor-hero.jpg" width="27.5%" alt="Server-M detail screen showcase">
+  <img src="assets/images/server-m-monitor-screens.jpg" width="70.5%" alt="Server-M list, settings, and detail screens">
 </p>
 <p align="center"><sub>Interface showcase</sub></p>
 
