@@ -87,7 +87,7 @@ panel API key are required.
 | --- | --- | --- |
 | 1. Upload the script | Files → open `/opt` → upload `ai_passport_agent.py` (also in Releases) | Same |
 | 2. Install | Scheduled tasks → Create → type "Shell script" → any schedule → paste the command below → run | Scheduled tasks → Add → type "Shell script" → any schedule → paste the command → run |
-| 3. Copy the token | The access token in the log is printed once; copy it, then pause or delete the task | Same |
+| 3. Copy the token | The "access token" in the log is the **access Token** entered in the device portal; it is printed once during installation; copy it, then pause or delete the task | Same |
 | 4. Create a site | Websites → Create → type "static", domain `monitor.example.com` | Websites → Add site → PHP "static", domain `monitor.example.com` |
 | 5. Reverse proxy | Site settings → Reverse proxy → add target `http://127.0.0.1:8899` | Settings → Reverse proxy → add target URL `http://127.0.0.1:8899`, send domain `$host`, disable caching |
 | 6. Certificate | Websites → HTTPS → request Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → force HTTPS |
@@ -99,14 +99,19 @@ Command for step 2:
 python3 /opt/ai_passport_agent.py install --panel local
 ```
 
+> [!IMPORTANT]
+> The "access token" in the log is the **access Token** entered in the device
+> portal's Server card, sent as the `X-Api-Token` header. It is printed only
+> once during installation, so copy it immediately; if lost, read it from
+> `/etc/ai-passport/agent.json`.
+
 The firmware currently shows local metrics only, so `--panel local` is enough
 and needs no panel API. For panel-side statistics, follow the 1Panel or Baota
 sections above and provide the API key.
 
 The installer creates and starts the `ai-passport-agent` systemd service,
 generates a random access token, and writes it to
-`/etc/ai-passport/agent.json` with mode `0600`. The access token in the log is
-printed only once, so copy it first.
+`/etc/ai-passport/agent.json` with mode `0600`.
 
 If the panel has no scheduled-task entry, run the same command in its terminal;
 prefix it with `sudo` when not root.

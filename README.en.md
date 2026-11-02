@@ -51,9 +51,14 @@ Create a Shell scheduled task with any schedule and run:
 python3 /opt/ai_passport_agent.py install --panel local
 ```
 
+> [!IMPORTANT]
+> The "access token" in the log is the **access Token** entered in the device
+> portal, sent as the `X-Api-Token` header. It is printed only once during
+> installation, so copy it immediately; if lost, read it from
+> `/etc/ai-passport/agent.json`.
+
 After clicking Run:
 
-- Copy the access token from the task log; it is printed only once.
 - Pause or delete the task; it is only needed for installation.
 - Without scheduled tasks, run the same command in the panel terminal, prefixed
   with `sudo` when not root.

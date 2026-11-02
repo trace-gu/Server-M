@@ -83,7 +83,7 @@ sudo python3 ai_passport_agent.py install \
 | --- | --- | --- |
 | 1. 上传脚本 | 文件 → 进入 `/opt` → 上传 `ai_passport_agent.py`（可从 Releases 下载） | 同上 |
 | 2. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期随意 → 粘贴下方命令 → 执行 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期随意 → 粘贴命令 → 执行 |
-| 3. 复制 Token | 任务日志中的「访问令牌」只打印一次；复制后暂停或删除任务 | 同上 |
+| 3. 复制 Token | 日志中的「访问令牌」就是配网页要填的**访问 Token**；只在安装时打印一次；复制后暂停或删除任务 | 同上 |
 | 4. 建站 | 网站 → 创建网站 → 类型「静态」，域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」，域名 `monitor.example.com` |
 | 5. 反向代理 | 网站设置 → 反向代理 → 添加代理地址 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
 | 6. 证书 | 网站 → HTTPS → Let's Encrypt 申请 → 开启「强制 HTTPS」 | SSL → Let's Encrypt 申请 → 开启「强制 HTTPS」 |
@@ -95,12 +95,16 @@ sudo python3 ai_passport_agent.py install \
 python3 /opt/ai_passport_agent.py install --panel local
 ```
 
+> [!IMPORTANT]
+> 日志中的「访问令牌」就是设备配网页「服务器」卡片要填的**访问 Token**，
+> 即请求头 `X-Api-Token` 的值。它只在安装时打印一次，请立即复制保存；如果
+> 丢失，可在 `/etc/ai-passport/agent.json` 中查看。
+
 当前固件只显示本机指标，`--panel local` 已足够，不需要面板 API。需要面板侧
 统计时，再按上方「1Panel」「宝塔」章节填写 API 密钥。
 
 安装脚本会创建并启动 systemd 服务 `ai-passport-agent`，随机生成访问 Token
-并写入 `/etc/ai-passport/agent.json`（权限 `0600`）。日志里的「访问令牌」
-只打印一次，请先复制保存。
+并写入 `/etc/ai-passport/agent.json`（权限 `0600`）。
 
 没有计划任务入口时，在面板终端执行同一命令；非 root 需要加 `sudo`。
 

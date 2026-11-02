@@ -50,9 +50,13 @@ Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。�
 python3 /opt/ai_passport_agent.py install --panel local
 ```
 
+> [!IMPORTANT]
+> 日志中的「访问令牌」就是设备配网页要填的**访问 Token**，也就是请求头
+> `X-Api-Token` 的值。它只在安装时打印一次，请立即复制保存；如果丢失，可在
+> `/etc/ai-passport/agent.json` 中查看。
+
 点「执行」后：
 
-- 日志中的「访问令牌」只打印一次，复制保存。
 - 安装任务用完即弃，暂停或删除。
 - 没有计划任务时，在面板终端执行同一命令；非 root 加 `sudo`。
 
