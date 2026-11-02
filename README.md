@@ -34,49 +34,68 @@ Server-M 是运行在 FoloToy AI Passport 硬件上的服务器监控固件。�
 
 ## 服务器端配置（1Panel / 宝塔）
 
-每台被监控的服务器先安装一次中转脚本。下面全程使用面板网页，不需要 SSH：
-脚本负责调用面板 API，设备只访问带 Token 的 `/status`。
+每台被监控的服务器先安装一次中转脚本。下面全程使用面板网页，不需要 SSH。
 
-**准备**：一个可解析到该服务器的域名，并在面板中为它申请 Let's Encrypt
-证书。设备只接受公共 CA 签发的 HTTPS 证书。
+### 1. 上传脚本
 
-| 步骤 | 1Panel | 宝塔 |
-| --- | --- | --- |
-| 1. 上传脚本 | 主机 → 文件 → `/opt` → 新建目录 `ai-passport` → 上传仓库中的 `server/ai_passport_agent.py`（也可从 Releases 下载） | 文件 → `/opt` → 新建目录 `ai-passport` → 上传同一文件 |
-| 2. 开启 API | 面板设置 → API 接口 → 开启 → 复制密钥 | 面板设置 → API 接口 → 开启 → 复制接口密钥，IP 白名单填 `127.0.0.1` |
-| 3. 计划任务安装 | 计划任务 → 创建 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴下方命令 → 保存后点「执行」 | 计划任务 → 添加 → 类型「Shell 脚本」→ 周期「每天」→ 粘贴命令 → 保存后点「执行」 |
-| 4. 创建网站 | 网站 → 创建网站 → 类型「静态」→ 域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」→ 域名 `monitor.example.com` |
-| 5. 反向代理 | 网站设置 → 反向代理 → 添加 → 目标 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加 → 目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
-| 6. 证书 | 网站 → HTTPS → Let's Encrypt → 开启「强制 HTTPS」 | SSL → Let's Encrypt → 开启「强制 HTTPS」 |
-| 7. 验证 | 新建临时计划任务执行下方 `curl`，在任务日志中查看返回 | 同上 |
+- 1Panel：左侧「文件」→ 进入 `/opt` → 上传 `ai_passport_agent.py`
+- 宝塔：左侧「文件」→ 进入 `/opt` → 上传 `ai_passport_agent.py`
 
-第 3 步命令（把密钥换成第 2 步复制的值）：
+脚本在仓库的 `server/` 目录，也可以从 [Releases](https://github.com/trace-gu/Server-M/releases/latest) 下载。
+
+### 2. 用计划任务安装
+
+1Panel：左侧「计划任务」→ 创建 → 类型「Shell 脚本」→ 执行周期随意（如每天）→ 脚本内容：
 
 ```bash
-# 1Panel
-python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel 1panel --api-key '<API 密钥>'
-
-# 宝塔
-python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel baota --api-key '<API 密钥>'
+python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<密钥>'
 ```
 
-执行后在任务日志中查看结果，找到「访问令牌」那一行并复制保存。安装成功后
-停用或删除这个任务即可；日常运行由 systemd 托管，不需要计划任务反复执行。
+宝塔：左侧「计划任务」→ 添加任务 → 类型「Shell 脚本」→ 周期随意 → 脚本内容：
 
-第 7 步验证命令：
+```bash
+python3 /opt/ai_passport_agent.py install --panel baota --api-key '<密钥>'
+```
+
+保存后点「执行」，在任务「日志」中查看安装结果。日志里的「访问令牌」就是
+设备要用的 Token，只打印这一次，请先复制保存。安装完成后把这条计划任务
+暂停或删除即可，它只用于安装。
+
+不想用计划任务时，1Panel「主机 → 终端」、宝塔「终端」，粘贴同一条命令回车
+（终端中需要 root，可在命令前加 `sudo`）。
+
+**关于 `--api-key`**：它是面板「面板设置 → API 接口」生成的密钥，不需要自己
+编造。随便填一个值也能安装运行，但脚本会退回本机 `/proc` 指标，面板提供的
+统计、Docker 和证书剩余天数等数据不可用。需要这些数据时，请开启面板 API 并
+填入真实密钥；宝塔还需要把 `127.0.0.1` 加入 API 白名单。
+
+### 3. 建站、反向代理和证书
+
+| 操作 | 1Panel | 宝塔 |
+| --- | --- | --- |
+| 创建静态站点 | 网站 → 创建网站 → 类型「静态」→ 域名 `monitor.example.com` | 网站 → 添加站点 → PHP「纯静态」→ 域名 `monitor.example.com` |
+| 反向代理 | 网站设置 → 反向代理 → 添加 → 目标 `http://127.0.0.1:8899` | 设置 → 反向代理 → 添加 → 目标 URL `http://127.0.0.1:8899`，发送域名 `$host`，关闭缓存 |
+| 证书 | 网站 → HTTPS → Let's Encrypt → 开启「强制 HTTPS」 | SSL → Let's Encrypt → 开启「强制 HTTPS」 |
+| 放行端口 | 主机 → 防火墙，放行 80、443 | 安全，放行 80、443 |
+
+设备只接受公共 CA 签发的 HTTPS 证书，因此需要域名和 Let's Encrypt 证书。
+
+### 4. 验证
+
+新建一个临时计划任务，执行下面的命令，在任务日志中查看返回：
 
 ```bash
 curl -s -H "X-Api-Token: <访问 Token>" http://127.0.0.1:8899/status
 ```
 
-返回包含 `"online": true` 的 JSON 即配置成功。浏览器直接打开
-`https://monitor.example.com/status` 会显示 `unauthorized`，这是正常的：
-浏览器不会发送 `X-Api-Token`。
+返回包含 `"online": true` 的 JSON 即配置成功，验证后删除这个临时任务。浏览器
+直接打开 `https://monitor.example.com/status` 会显示 `unauthorized`，这是正常
+现象：浏览器不会发送 `X-Api-Token`。
 
-最后在设备配网页的「服务器」卡片填写 `https://monitor.example.com/status`
-和同一个 Token。多台服务器重复以上步骤，每台使用各自的域名和 Token。
+### 5. 填入设备
+
+在设备配网页的「服务器」卡片填写 `https://monitor.example.com/status` 和同一个
+Token。多台服务器重复以上步骤，每台使用各自的域名和 Token。
 
 > [!NOTE]
 > 如果 1Panel 的反向代理容器访问不到宿主机的 `127.0.0.1`，把代理目标改为

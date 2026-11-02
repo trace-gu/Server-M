@@ -35,52 +35,76 @@ Server-M is server-monitoring firmware for the FoloToy AI Passport hardware. It 
 ## Server setup (1Panel / Baota)
 
 Install the relay script once on every monitored server. The steps below use
-only the panel web UI and need no SSH: the script calls the panel API, and the
-device only requests `/status` with a token.
+only the panel web UI and need no SSH.
 
-**Prerequisites**: a domain that resolves to this server, with a Let's Encrypt
-certificate requested in the panel. The device accepts only HTTPS certificates
-issued by a public CA.
+### 1. Upload the script
 
-| Step | 1Panel | Baota |
-| --- | --- | --- |
-| 1. Upload the script | Hosts → Files → `/opt` → create `ai-passport` → upload `server/ai_passport_agent.py` from this repository (or download it from Releases) | Files → `/opt` → create `ai-passport` → upload the same file |
-| 2. Enable the API | Panel settings → API interface → enable → copy the key | Panel settings → API interface → enable → copy the key, allow `127.0.0.1` in the IP allowlist |
-| 3. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the command → save, then run it once |
-| 4. Create a site | Websites → Create → type "static" → domain `monitor.example.com` | Websites → Add site → PHP "static" → domain `monitor.example.com` |
-| 5. Reverse proxy | Site settings → Reverse proxy → add target `http://127.0.0.1:8899` | Settings → Reverse proxy → add target URL `http://127.0.0.1:8899`, send domain `$host`, disable caching |
-| 6. Certificate | Websites → HTTPS → Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → enable "force HTTPS" |
-| 7. Verify | Create a temporary scheduled task that runs the `curl` command below and read its log | Same |
+- 1Panel: Files → open `/opt` → upload `ai_passport_agent.py`
+- Baota: Files → open `/opt` → upload `ai_passport_agent.py`
 
-Commands for step 3 (replace the key copied in step 2):
+The script lives in the repository's `server/` directory and is also available
+in [Releases](https://github.com/trace-gu/Server-M/releases/latest).
+
+### 2. Install with a scheduled task
+
+1Panel: Scheduled tasks → Create → type "Shell script" → any schedule (for
+example daily) → script:
 
 ```bash
-# 1Panel
-python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel 1panel --api-key '<API key>'
-
-# Baota
-python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel baota --api-key '<API key>'
+python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<key>'
 ```
 
-Open the task log after it runs and copy the value on the access-token line.
-Save it and disable or delete the task. systemd keeps the agent running, so the
-task does not need to run repeatedly.
+Baota: Scheduled tasks → Add → type "Shell script" → any schedule → script:
 
-Verification command for step 7:
+```bash
+python3 /opt/ai_passport_agent.py install --panel baota --api-key '<key>'
+```
+
+Save it and click Run. The task log shows the installation result and the
+access token used by the device. The token is printed only this once, so copy
+it first. Pause or delete the task after installation; it is only needed once.
+
+Without scheduled tasks, run the same command in 1Panel's terminal
+(Hosts → Terminal) or Baota's terminal; the terminal needs root, so prefix it
+with `sudo`.
+
+**About `--api-key`**: this is the key generated under Panel settings → API
+interface, not a value you invent. You can install and run with any value, but
+the agent then falls back to local `/proc` metrics and loses panel-provided
+statistics, Docker counts, and certificate days remaining. Enable the panel API
+and use the real key to get those fields; on Baota, also allow `127.0.0.1` in
+the API allowlist.
+
+### 3. Create the site, reverse proxy, and certificate
+
+| Action | 1Panel | Baota |
+| --- | --- | --- |
+| Create a static site | Websites → Create → type "static" → domain `monitor.example.com` | Websites → Add site → PHP "static" → domain `monitor.example.com` |
+| Reverse proxy | Site settings → Reverse proxy → add target `http://127.0.0.1:8899` | Settings → Reverse proxy → add target URL `http://127.0.0.1:8899`, send domain `$host`, disable caching |
+| Certificate | Websites → HTTPS → Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → enable "force HTTPS" |
+| Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
+
+The device accepts only public-CA HTTPS certificates, so a domain and a Let's
+Encrypt certificate are required.
+
+### 4. Verify
+
+Create a temporary scheduled task that runs the command below and read its log:
 
 ```bash
 curl -s -H "X-Api-Token: <access token>" http://127.0.0.1:8899/status
 ```
 
-A JSON response containing `"online": true` means the setup works. Opening
-`https://monitor.example.com/status` in a browser shows `unauthorized`; that is
-expected because browsers do not send `X-Api-Token`.
+A JSON response containing `"online": true` means the setup works. Delete the
+temporary task afterwards. Opening `https://monitor.example.com/status` in a
+browser shows `unauthorized`; that is expected because browsers do not send
+`X-Api-Token`.
 
-Finally, enter `https://monitor.example.com/status` and the same token in the
-device portal's Server card. Repeat these steps for each server, using its own
-domain and token.
+### 5. Enter the values on the device
+
+Enter `https://monitor.example.com/status` and the same token in the device
+portal's Server card. Repeat these steps for each server, using its own domain
+and token.
 
 > [!NOTE]
 > If the 1Panel reverse-proxy container cannot reach the host's `127.0.0.1`,

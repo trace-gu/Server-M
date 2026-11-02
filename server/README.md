@@ -79,39 +79,42 @@ If the panel is not on loopback, add `--panel-url http://10.0.0.5:8090`.
 
 ## GUI install (1Panel / Baota)
 
-You can finish the whole install with the panel's own **file manager, terminal,
-and website reverse proxy**; no hand-written nginx config is needed.
+You can finish the whole install with the panel's own **file manager, scheduled
+tasks, and website reverse proxy**; no hand-written nginx config is needed.
 
 | Step | 1Panel | Baota |
 | --- | --- | --- |
-| 1. Upload the script | Hosts → Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` (also available in Releases) | Files → open `/opt` → create `ai-passport` → upload `ai_passport_agent.py` |
-| 2. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → schedule "daily" → paste the 1Panel command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → schedule "daily" → paste the Baota command → save, then run it once |
-| 3. Copy the token | Open the task log and copy the access-token line. Save it and disable the task | Same |
+| 1. Upload the script | Hosts → Files → open `/opt` → upload `ai_passport_agent.py` (also in Releases) | Files → open `/opt` → upload `ai_passport_agent.py` |
+| 2. Install with a scheduled task | Scheduled tasks → Create → type "Shell script" → any schedule → paste the 1Panel command below → save, then run it once | Scheduled tasks → Add → type "Shell script" → any schedule → paste the Baota command → save, then run it once |
+| 3. Copy the token | Open the task log and copy the access-token line. Save it and pause or delete the task | Same |
 | 4. Verify | Create a temporary scheduled task that runs the `curl` command and read its log | Same |
 | 5. Create a site | Websites → Create → type "static", domain `monitor.example.com` | Websites → Add site → PHP "static", domain `monitor.example.com` |
 | 6. Reverse proxy | Site settings → Reverse proxy → add: target `http://127.0.0.1:8899` | Settings → Reverse proxy → add: target URL `http://127.0.0.1:8899`, send domain `$host`, cache off |
 | 7. Certificate | Websites → HTTPS → request Let's Encrypt → enable "force HTTPS" | SSL → Let's Encrypt → force HTTPS |
 | 8. Open ports | Hosts → Firewall, allow 80 and 443 | Security, allow 80 and 443 |
 
-The step 2 commands (replace the key with the one copied from the panel):
+Commands for step 2:
 
 ```bash
-# 1Panel (key: Panel settings → API interface)
-sudo python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel 1panel --api-key '<API key>'
+# 1Panel
+python3 /opt/ai_passport_agent.py install --panel 1panel --api-key '<key>'
 
-# Baota (key: Panel settings → API interface)
-sudo python3 /opt/ai-passport/ai_passport_agent.py install \
-    --panel baota --api-key '<API key>'
+# Baota
+python3 /opt/ai_passport_agent.py install --panel baota --api-key '<key>'
 ```
+
+`--api-key` is the key generated under Panel settings → API interface, not a
+value you invent. Any value still installs and runs, but the agent falls back to
+local `/proc` metrics and loses panel statistics, Docker counts, and certificate
+days remaining. Enable the panel API and use the real key for those fields.
 
 The installer creates and starts the `ai-passport-agent` systemd service,
 generates a random access token, and writes it to
-`/etc/ai-passport/agent.json` with mode `0600`.
+`/etc/ai-passport/agent.json` with mode `0600`. The access token in the log is
+printed only once, so copy it first.
 
 If the panel has no scheduled-task entry, run the same command in its terminal
-or over SSH; it works from any directory because the installer uses absolute
-paths.
+or over SSH; the terminal needs root, so prefix it with `sudo`.
 
 Opening `https://monitor.example.com/status` in a browser shows
 `{"ok":false,"error":"unauthorized"}`. That is **expected**: browsers do not
@@ -119,7 +122,7 @@ send `X-Api-Token`. Create a temporary scheduled task that runs the verification
 command below and read its log:
 
 ```bash
-TOKEN=$(sudo python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
+TOKEN=$(python3 -c 'import json;print(json.load(open("/etc/ai-passport/agent.json"))["token"])')
 curl -s -H "X-Api-Token: $TOKEN" http://127.0.0.1:8899/status
 ```
 
@@ -127,7 +130,7 @@ Use `https://monitor.example.com/status` and the same token in the device
 portal.
 
 GUI uninstall: run
-`sudo python3 /opt/ai-passport/ai_passport_agent.py uninstall --purge` in the
+`sudo python3 /opt/ai_passport_agent.py uninstall --purge` in the
 panel terminal, then delete the site from the website list.
 
 ## Publish over HTTPS
